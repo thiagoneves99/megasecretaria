@@ -18,10 +18,10 @@ def handle_incoming_message(sender_number: str, message_text: str):
     # Nota: A mensagem recebida já foi salva em main.py antes da verificação de acesso.
 
     # Usar IA para entender a intenção e gerar uma resposta
-    prompt_for_receptionist = f"O usuário ({sender_number}) disse: 
+    prompt_for_receptionist = f"""O usuário ({sender_number}) disse: 
 {message_text}
 
-Responda de forma natural e prestativa como uma secretária."
+Responda de forma natural e prestativa como uma secretária."""
 
     ai_response = get_ai_response(prompt_for_receptionist)
 
