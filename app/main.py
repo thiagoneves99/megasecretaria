@@ -50,16 +50,15 @@ def evolution_webhook():
             print(f"Remetente: {sender_number}")
             print(f"Mensagem: {message_content}")
 
-            # Salva a mensagem recebida ANTES de verificar o acesso
-            # Assim, temos registro de todas as tentativas de contato
-            save_message(sender_number, message_content, direction="incoming")
-
             normalized_allowed_number = ALLOWED_PHONE_NUMBER.lstrip("+")
             normalized_sender_number = sender_number.lstrip("+")
 
             if normalized_sender_number != normalized_allowed_number:
                 print(f"Acesso negado para: {sender_number}. Número permitido: {ALLOWED_PHONE_NUMBER}")
-                return jsonify({"status": "denied", "reason": "unauthorized sender"}), 403
+                return jsonify({"status": "denied", "reason": "unauthorized sender"}), 200
+
+            # Salva a mensagem recebida APÓS verificar o acesso
+            save_message(sender_number, message_content, direction="incoming")
 
             print(f"Acesso permitido para: {sender_number}. Processando...")
             # Chama o handler da recepcionista (que agora também pode salvar a msg de saída)
