@@ -1,0 +1,47 @@
+# /home/ubuntu/mega_secretary/docker-compose.yml
+
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    # Nome do container alterado para evitar conflito com o existente
+    container_name: mega_secretary_db_instance
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    environment:
+      POSTGRES_USER: user # Mantenha ou altere conforme sua preferência, mas atualize no .env se mudar
+      POSTGRES_PASSWORD: password # Mantenha ou altere conforme sua preferência, mas atualize no .env se mudar
+      POSTGRES_DB: mega_secretary_db # Mantenha ou altere conforme sua preferência, mas atualize no .env se mudar
+    ports:
+      # Porta do host alterada para 5433 para não conflitar com seu Postgres existente na 5432
+      # A porta interna do container continua 5432
+      - "5433:5432"
+    networks:
+      - mega_secretary_net
+    restart: unless-stopped
+
+  app:
+    container_name: mega_secretary_app
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - ./config/.env # Carrega as variáveis de ambiente do arquivo .env
+    ports:
+      # Mapeia a porta 8000 (Gunicorn) do container para a porta 5001 do host (VPS)
+      # O EasyPanel fará o proxy reverso do seu subdomínio para esta porta (localhost:5001)
+      - "5001:8000"
+    depends_on:
+      - db # Garante que o banco de dados inicie antes da aplicação
+    networks:
+      - mega_secretary_net
+    restart: unless-stopped
+
+volumes:
+  postgres_data: # Volume nomeado para persistir os dados do PostgreSQL
+
+networks:
+  mega_secretary_net: # Rede customizada para os containers se comunicarem
+    driver: bridge
+

@@ -1,0 +1,9 @@
+# /home/ubuntu/mega_secretary/requirements.txt
+
+Flask>=2.0
+requests>=2.20
+openai>=1.0
+python-dotenv>=0.15
+psycopg2-binary>=2.9 # Usar a versão binária facilita a instalação no Docker
+gunicorn>=20.0 # Recomendado para rodar Flask em produção dentro do Docker
+

@@ -1,0 +1,29 @@
+# Arquivo .gitignore para o projeto Mega Secretária
+
+# Ignorar o arquivo de variáveis de ambiente
+config/.env
+
+# Ignorar diretórios de cache Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Ignorar diretórios de ambiente virtual
+venv/
+.venv/
+env/
+.env/
+ENV/
+env.bak/
+venv.bak/
+
+# Ignorar arquivos específicos do editor/IDE
+.vscode/
+.idea/
+*.swp
+*~
+
+# Ignorar arquivos de sistema operacional
+.DS_Store
+Thumbs.db
+
