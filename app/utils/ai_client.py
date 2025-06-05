@@ -15,7 +15,7 @@ else:
         print(f"Erro ao inicializar o cliente OpenAI: {e}")
         client = None
 
-def get_ai_response(prompt: str, system_message: str = "Você é uma recepcionista IA prestativa e amigável. Fale de forma natural.") -> str | None:
+def get_ai_response(messages: list[dict]) -> str | None:
     """Obtém uma resposta do modelo de IA configurado."""
     if not client:
         print("Erro: Cliente OpenAI não inicializado.")
@@ -24,10 +24,7 @@ def get_ai_response(prompt: str, system_message: str = "Você é uma recepcionis
     try:
         completion = client.chat.completions.create(
             model=AI_MODEL_NAME,
-            messages=[
-                {"role": "system", "content": system_message},
-                {"role": "user", "content": prompt}
-            ]
+            messages=messages
         )
         # Acessa o conteúdo da mensagem da resposta
         if completion.choices and completion.choices[0].message:

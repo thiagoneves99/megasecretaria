@@ -2,7 +2,9 @@
 
 from .utils.ai_client import get_ai_response
 from .utils.whatsapp_client import send_whatsapp_message
-from .utils.db_handler import save_message # Importar save_message
+from .utils.db_handler import save_message, get_conversation_history # Importar save_message e get_conversation_history
+from config.settings import ALLOWED_PHONE_NUMBER # Importar o número permitido
+import tiktoken # Importar tiktoken para contagem de tokens
 
 # Mapeamento inicial de intenções para agentes (placeholder)
 AGENT_MAP = {
@@ -18,12 +20,38 @@ def handle_incoming_message(sender_number: str, message_text: str):
     # Nota: A mensagem recebida já foi salva em main.py antes da verificação de acesso.
 
     # Usar IA para entender a intenção e gerar uma resposta
-    prompt_for_receptionist = f"""O usuário ({sender_number}) disse: 
-{message_text}
+    if sender_number == ALLOWED_PHONE_NUMBER.lstrip("+"):
+        user_designation = "Meu Mestre"
+    else:
+        user_designation = "o usuário"
 
-Responda de forma natural e prestativa como uma secretária."""
+    # Recuperar histórico de conversas
+    history = get_conversation_history(sender_number, limit=20)
 
-    ai_response = get_ai_response(prompt_for_receptionist)
+    # Limitar histórico por tokens
+    MAX_TOKENS_HISTORY = 1000  # Ajuste este valor conforme necessário
+    encoding = tiktoken.encoding_for_model("gpt-4o-mini")
+    
+    current_history_tokens = 0
+    context_messages = []
+
+    for msg_text, msg_direction in reversed(history): # Inverter para adicionar do mais antigo ao mais novo
+        role = "user" if msg_direction == "incoming" else "assistant"
+        message_tokens = len(encoding.encode(msg_text))
+        
+        if current_history_tokens + message_tokens > MAX_TOKENS_HISTORY:
+            break
+        
+        context_messages.insert(0, {"role": role, "content": msg_text})
+        current_history_tokens += message_tokens
+
+    # Construir o prompt com base no histórico
+    messages_for_ai = []
+    messages_for_ai.append({"role": "system", "content": "Você é uma secretária virtual prestativa e eficiente."})
+    messages_for_ai.extend(context_messages)
+    messages_for_ai.append({"role": "user", "content": f"{user_designation} disse: {message_text}"})
+
+    ai_response = get_ai_response(messages_for_ai)
 
     if not ai_response:
         ai_response = "Desculpe, não consegui processar sua solicitação no momento. Pode tentar reformular?"

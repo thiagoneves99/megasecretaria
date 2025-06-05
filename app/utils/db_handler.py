@@ -77,30 +77,29 @@ def save_message(sender_number: str, message_text: str, direction: str):
         if conn:
             conn.close()
 
-# Exemplo de como buscar mensagens (pode ser adicionado futuramente)
-# def get_conversation_history(sender_number: str, limit: int = 10):
-#     """Busca o histórico recente de conversas para um número."""
-#     conn = get_db_connection()
-#     if not conn:
-#         return []
-#     try:
-#         with conn.cursor() as cur:
-#             cur.execute("""
-#             SELECT sender_number, message_text, direction, timestamp
-#             FROM conversations
-#             WHERE sender_number = %s
-#             ORDER BY timestamp DESC
-#             LIMIT %s
-#             """, (sender_number, limit))
-#             # Retorna em ordem cronológica (mais antiga primeiro)
-#             history = cur.fetchall()[::-1]
-#             return history
-#     except Exception as e:
-#         print(f"Erro ao buscar histórico de conversas: {e}")
-#         return []
-#     finally:
-#         if conn:
-#             conn.close()
+def get_conversation_history(sender_number: str, limit: int = 20):
+    """Busca o histórico recente de conversas para um número."""
+    conn = get_db_connection()
+    if not conn:
+        return []
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+            SELECT message_text, direction
+            FROM conversations
+            WHERE sender_number = %s
+            ORDER BY timestamp DESC
+            LIMIT %s
+            """, (sender_number, limit))
+            # Retorna em ordem cronológica (mais antiga primeiro)
+            history = cur.fetchall()[::-1]
+            return history
+    except Exception as e:
+        print(f"Erro ao buscar histórico de conversas: {e}")
+        return []
+    finally:
+        if conn:
+            conn.close()
 
 # Chamada inicial para garantir que a tabela exista ao iniciar a aplicação
 # Isso pode ser movido para um ponto de inicialização mais centralizado em main.py
