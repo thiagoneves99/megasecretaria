@@ -16,8 +16,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # A estrutura interna será /code/app, /code/config, etc.
 COPY . .
 
-# Define o PYTHONPATH para incluir o diretório /code
-ENV PYTHONPATH "${PYTHONPATH}:/code"
+# Define o PYTHONPATH diretamente para /code (Formato Chave=Valor)
+ENV PYTHONPATH=/code
 
 # Expõe a porta que o Gunicorn usará
 EXPOSE 8000
