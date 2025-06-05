@@ -20,16 +20,15 @@ HEADERS = {
 
 def send_whatsapp_message(recipient_number: str, message: str):
     """Envia uma mensagem de texto via Evolution API."""
+    # Payload modificado: 'text' diretamente no corpo, conforme erro 400
     payload = {
         "number": recipient_number,
         "options": {
             "delay": 1200,
-            "presence": "composing", # Simula digitação
+            "presence": "composing",
             "linkPreview": False
         },
-        "textMessage": {
-            "text": message
-        }
+        "text": message # Campo 'text' diretamente no payload
     }
 
     try:
