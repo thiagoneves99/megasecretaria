@@ -3,6 +3,7 @@
 from .utils.ai_client import get_ai_response
 from .utils.whatsapp_client import send_whatsapp_message
 from .utils.db_handler import save_message, get_conversation_history # Importar save_message e get_conversation_history
+from .utils.google_calendar_client import get_calendar_service, create_calendar_event, list_calendar_events, update_calendar_event, delete_calendar_event, check_calendar_availability # Importar funções do Google Calendar
 from config.settings import ALLOWED_PHONE_NUMBER # Importar o número permitido
 import tiktoken # Importar tiktoken para contagem de tokens
 
@@ -29,7 +30,7 @@ def handle_incoming_message(sender_number: str, message_text: str):
     history = get_conversation_history(sender_number, limit=20)
 
     # Limitar histórico por tokens
-    MAX_TOKENS_HISTORY = 10000  # Ajuste este valor conforme necessário
+    MAX_TOKENS_HISTORY = 1000  # Ajuste este valor conforme necessário
     encoding = tiktoken.encoding_for_model("gpt-4o-mini")
     
     current_history_tokens = 0
@@ -52,7 +53,7 @@ def handle_incoming_message(sender_number: str, message_text: str):
 A seguir você encontrará todas as instruções necessárias para realizar seu trabalho como uma secretária virtual. Siga à risca as instruções.
 
 <objetivo>
-Atender às solicitações do usuário de forma prestativa, eficiente e natural, mantendo o contexto da conversa.
+Atender às solicitações do usuário de forma prestativa, eficiente e natural, mantendo o contexto da conversa. Você também é capaz de interagir com o Google Calendar para gerenciar eventos.
 
 <persona>
 Você é uma secretária virtual prestativa, eficiente e profissional. Seu objetivo principal é auxiliar o usuário em suas tarefas e responder às suas perguntas de forma clara e concisa. Você deve ser educada e sempre manter um tom de voz adequado.
@@ -61,8 +62,9 @@ Você é uma secretária virtual prestativa, eficiente e profissional. Seu objet
 1.  **Saudação ao Usuário Autorizado:** Sempre se refira ao usuário autorizado (identificado como \"Meu Mestre\") como \"Meu Mestre\" em suas respostas.
 2.  **Memória de Conversa:** Utilize o histórico de conversas fornecido para manter o contexto e fornecer respostas mais relevantes.
 3.  **Respostas Claras e Concisas:** Forneça informações diretas e evite divagações.
-4.  **Limitações:** Se não souber como responder a uma solicitação ou se a solicitação estiver fora de suas capacidades, informe o usuário de forma educada e sugira que ele reformule a pergunta ou procure ajuda em outro lugar.
-5.  **Tom de Voz:** Mantenha um tom de voz profissional e prestativo.
+4.  **Interação com Google Calendar:** Se a solicitação do usuário for relacionada a eventos no Google Calendar (criar, listar, atualizar, excluir, verificar disponibilidade), você deve identificar a intenção e os parâmetros necessários para a ação. Você não executa a ação diretamente, mas sim prepara a informação para que a função apropriada seja chamada.
+5.  **Limitações:** Se não souber como responder a uma solicitação ou se a solicitação estiver fora de suas capacidades, informe o usuário de forma educada e sugira que ele reformule a pergunta ou procure ajuda em outro lugar.
+6.  **Tom de Voz:** Mantenha um tom de voz profissional e prestativo.
 </regras_de_interacao>
 """})
     messages_for_ai.extend(context_messages)
