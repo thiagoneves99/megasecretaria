@@ -118,9 +118,9 @@ Data de amanhã: {tomorrow_date}
         # Aqui você formataria a resposta do calendário para o usuário
         # Por enquanto, vamos apenas retornar uma mensagem genérica ou o status
         if calendar_action_response.get("status") == "success":
-            ai_response = f"Operação de calendário realizada com sucesso: {calendar_action_response.get("message", "")}"
+            ai_response = f"Operação de calendário realizada com sucesso: {calendar_action_response.get('message', '')}"
         else:
-            ai_response = f"Erro na operação de calendário: {calendar_action_response.get("message", "")}"
+            ai_response = f"Erro na operação de calendário: {calendar_action_response.get('message', '')}"
 
     if not ai_response:
         ai_response = "Desculpe, não consegui processar sua solicitação no momento. Pode tentar reformular?"
