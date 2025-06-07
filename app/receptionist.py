@@ -1,4 +1,16 @@
-# ... seus imports aqui (não mudou) ...
+from .utils.ai_client import get_ai_response
+from .utils.whatsapp_client import send_whatsapp_message
+from .utils.db_handler import save_message, get_conversation_history
+from .utils.google_calendar_client import (
+    get_calendar_service, create_calendar_event, list_calendar_events,
+    update_calendar_event, delete_calendar_event, check_calendar_availability
+)
+from config.settings import ALLOWED_PHONE_NUMBER
+import tiktoken
+import json
+import re
+from datetime import datetime, timedelta
+import pytz
 
 MAX_TOKENS_HISTORY = 1000
 
@@ -58,7 +70,6 @@ As ações possíveis são: create_event, list_events, update_event, delete_even
 
 - Datas: Use sempre o formato YYYY-MM-DD. "Hoje" corresponde a {current_date}, "amanhã" a {tomorrow_date}.
 - Horários: Use sempre o formato HH:MM (24 horas), considerando o fuso horário do Brasil (America/Sao_Paulo).
-- IMPORTANTE: Para a ação "create_event", sempre informe o campo "start_datetime" no formato "YYYY-MM-DDTHH:MM:SS". NÃO utilize "start_date" ou "start_time" separadamente.
 
 5. **Limitações:** Se não souber como responder a uma solicitação ou se ela estiver fora de suas capacidades, informe o usuário educadamente.
 6. **Tom de Voz:** Mantenha um tom profissional e prestativo.
@@ -83,6 +94,16 @@ Data de amanhã (Brasil): {tomorrow_date}
         ai_response_json = json.loads(ai_response_clean)
         action = ai_response_json.get("action")
         parameters = ai_response_json.get("parameters", {})
+
+        # Ajusta a duração do evento para 1 hora se for create_event e start_datetime estiver presente
+        if action == "create_event":
+            start_str = parameters.get("start_datetime")
+            if start_str:
+                start_dt = datetime.strptime(start_str, "%Y-%m-%dT%H:%M:%S")
+                end_dt = start_dt + timedelta(hours=1)
+                end_str = end_dt.strftime("%Y-%m-%dT%H:%M:%S")
+                parameters["end_datetime"] = end_str
+                parameters["timezone"] = "America/Sao_Paulo"
 
         try:
             service = get_calendar_service()
