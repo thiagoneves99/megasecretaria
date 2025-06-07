@@ -8,6 +8,7 @@ from config.settings import ALLOWED_PHONE_NUMBER # Importar o número permitido
 import tiktoken # Importar tiktoken para contagem de tokens
 import json # Importar json para parsing de respostas da IA
 from datetime import datetime, timedelta
+import pytz # Importar pytz para lidar com fusos horários
 
 # Mapeamento inicial de intenções para agentes (placeholder)
 AGENT_MAP = {
@@ -48,9 +49,12 @@ def handle_incoming_message(sender_number: str, message_text: str):
         context_messages.insert(0, {"role": role, "content": msg_text})
         current_history_tokens += message_tokens
 
-    # Obter a data atual para fornecer à IA
-    current_date = datetime.now().strftime("%Y-%m-%d")
-    tomorrow_date = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+    # Obter a data e hora atuais no fuso horário do Brasil
+    brazil_timezone = pytz.timezone("America/Sao_Paulo")
+    now_brazil = datetime.now(brazil_timezone)
+    current_date = now_brazil.strftime("%Y-%m-%d")
+    current_time = now_brazil.strftime("%H:%M")
+    tomorrow_date = (now_brazil + timedelta(days=1)).strftime("%Y-%m-%d")
 
     # Construir o prompt com base no histórico e data atual
     messages_for_ai = []
@@ -70,14 +74,15 @@ Você é uma secretária virtual prestativa, eficiente e profissional. Seu objet
 3.  **Respostas Claras e Concisas:** Forneça informações diretas e evite divagações.
 4.  **Interação com Google Calendar:** Se a solicitação do usuário for relacionada a eventos no Google Calendar (criar, listar, atualizar, excluir, verificar disponibilidade), você deve identificar a intenção e os parâmetros necessários para a ação. **Sua resposta DEVE ser um objeto JSON no formato: `{{"action": "<nome_da_acao>", "parameters": {{<parametros_da_acao>}}}}`. As ações possíveis são: `create_event`, `list_events`, `update_event`, `delete_event`, `check_availability`. Se não for uma ação de calendário, responda em texto natural.**
     *   **Datas:** Sempre use o formato `YYYY-MM-DD`. Se o usuário disser "hoje", use `{current_date}`. Se disser "amanhã", use `{tomorrow_date}`. Se disser um dia da semana sem data específica (ex: "próxima segunda"), calcule a data correta a partir de `{current_date}`.
-    *   **Horários:** Sempre use o formato `HH:MM` (24 horas).
+    *   **Horários:** Sempre use o formato `HH:MM` (24 horas). Considere o fuso horário do Brasil (`America/Sao_Paulo`).
 5.  **Limitações:** Se não souber como responder a uma solicitação ou se a solicitação estiver fora de suas capacidades, informe o usuário de forma educada e sugira que ele reformule a pergunta ou procure ajuda em outro lugar.
 6.  **Tom de Voz:** Mantenha um tom de voz profissional e prestativo.
 </regras_de_interacao>
 
 <informacoes_de_contexto>
-Data atual: {current_date}
-Data de amanhã: {tomorrow_date}
+Data atual (Brasil): {current_date}
+Hora atual (Brasil): {current_time}
+Data de amanhã (Brasil): {tomorrow_date}
 </informacoes_de_contexto>
 """})
     messages_for_ai.extend(context_messages)
@@ -118,9 +123,9 @@ Data de amanhã: {tomorrow_date}
         # Aqui você formataria a resposta do calendário para o usuário
         # Por enquanto, vamos apenas retornar uma mensagem genérica ou o status
         if calendar_action_response.get("status") == "success":
-            ai_response = f"Operação de calendário realizada com sucesso: {calendar_action_response.get('message', '')}"
+            ai_response = f"Operação de calendário realizada com sucesso: {calendar_action_response.get("message", "")}"
         else:
-            ai_response = f"Erro na operação de calendário: {calendar_action_response.get('message', '')}"
+            ai_response = f"Erro na operação de calendário: {calendar_action_response.get("message", "")}"
 
     if not ai_response:
         ai_response = "Desculpe, não consegui processar sua solicitação no momento. Pode tentar reformular?"
