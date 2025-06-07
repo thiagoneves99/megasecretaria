@@ -12,20 +12,24 @@ SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
 def get_calendar_service():
     """Shows basic usage of the Google Calendar API.
-    Prints the start and name of the next 10 events on the user's calendar.
+    Prints the start and name of the next 10 events on the user\'s calendar.
     """
+    token_path = os.getenv("GOOGLE_TOKEN_PATH", "token.pickle") # Default to token.pickle if not set
+
     creds = None
-    # The file token.pickle stores the user's access and refresh tokens, and is
+    # The file token.pickle stores the user\'s access and refresh tokens, and is
     # created automatically when the authorization flow completes for the first
     # time.
-    if os.path.exists("token.pickle"):
-        with open("token.pickle", "rb") as token:
+    if os.path.exists(token_path):
+        with open(token_path, "rb") as token:
             creds = pickle.load(token)
     # If there are no (valid) credentials available, let the user log in.
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
+            # This part assumes credentials.json is available for initial auth
+            # For server environments, consider using a Service Account or a pre-generated token
             flow = InstalledAppFlow.from_client_config(
                 {
                     "web": {
@@ -40,7 +44,7 @@ def get_calendar_service():
             )
             creds = flow.run_local_server(port=0)
         # Save the credentials for the next run
-        with open("token.pickle", "wb") as token:
+        with open(token_path, "wb") as token:
             pickle.dump(creds, token)
 
     try:
@@ -81,5 +85,6 @@ def check_calendar_availability(service, time_min, time_max):
     # Implement availability check logic here
     print("Checking availability...")
     return {"status": "success", "message": "Availability check logic not yet implemented."}
+
 
 
