@@ -6,6 +6,7 @@ from .utils.db_handler import save_message, get_conversation_history # Importar 
 from .utils.google_calendar_client import get_calendar_service, create_calendar_event, list_calendar_events, update_calendar_event, delete_calendar_event, check_calendar_availability # Importar funções do Google Calendar
 from config.settings import ALLOWED_PHONE_NUMBER # Importar o número permitido
 import tiktoken # Importar tiktoken para contagem de tokens
+import json # Importar json para parsing de respostas da IA
 
 # Mapeamento inicial de intenções para agentes (placeholder)
 AGENT_MAP = {
@@ -62,7 +63,7 @@ Você é uma secretária virtual prestativa, eficiente e profissional. Seu objet
 1.  **Saudação ao Usuário Autorizado:** Sempre se refira ao usuário autorizado (identificado como \"Meu Mestre\") como \"Meu Mestre\" em suas respostas.
 2.  **Memória de Conversa:** Utilize o histórico de conversas fornecido para manter o contexto e fornecer respostas mais relevantes.
 3.  **Respostas Claras e Concisas:** Forneça informações diretas e evite divagações.
-4.  **Interação com Google Calendar:** Se a solicitação do usuário for relacionada a eventos no Google Calendar (criar, listar, atualizar, excluir, verificar disponibilidade), você deve identificar a intenção e os parâmetros necessários para a ação. Você não executa a ação diretamente, mas sim prepara a informação para que a função apropriada seja chamada.
+4.  **Interação com Google Calendar:** Se a solicitação do usuário for relacionada a eventos no Google Calendar (criar, listar, atualizar, excluir, verificar disponibilidade), você deve identificar a intenção e os parâmetros necessários para a ação. **Sua resposta DEVE ser um objeto JSON no formato: `{"action": "<nome_da_acao>", "parameters": {<parametros_da_acao>}}`. As ações possíveis são: `create_event`, `list_events`, `update_event`, `delete_event`, `check_availability`. Se não for uma ação de calendário, responda em texto natural.**
 5.  **Limitações:** Se não souber como responder a uma solicitação ou se a solicitação estiver fora de suas capacidades, informe o usuário de forma educada e sugira que ele reformule a pergunta ou procure ajuda em outro lugar.
 6.  **Tom de Voz:** Mantenha um tom de voz profissional e prestativo.
 </regras_de_interacao>
@@ -71,6 +72,43 @@ Você é uma secretária virtual prestativa, eficiente e profissional. Seu objet
     messages_for_ai.append({"role": "user", "content": f"{user_designation} disse: {message_text}"})
 
     ai_response = get_ai_response(messages_for_ai)
+
+    calendar_action_response = None
+    try:
+        # Tenta interpretar a resposta da IA como JSON
+        ai_response_json = json.loads(ai_response)
+        action = ai_response_json.get("action")
+        parameters = ai_response_json.get("parameters", {})
+
+        service = get_calendar_service()
+        if not service:
+            ai_response = "Desculpe, não consegui conectar ao Google Calendar no momento."
+        else:
+            if action == "create_event":
+                calendar_action_response = create_calendar_event(service, parameters)
+            elif action == "list_events":
+                calendar_action_response = list_calendar_events(service, parameters.get("time_min"), parameters.get("time_max"))
+            elif action == "update_event":
+                calendar_action_response = update_calendar_event(service, parameters.get("event_id"), parameters.get("updated_event_data"))
+            elif action == "delete_event":
+                calendar_action_response = delete_calendar_event(service, parameters.get("event_id"))
+            elif action == "check_availability":
+                calendar_action_response = check_calendar_availability(service, parameters.get("time_min"), parameters.get("time_max"))
+            else:
+                # Se a IA retornou JSON mas a ação não é reconhecida, trata como texto normal
+                pass
+
+    except json.JSONDecodeError:
+        # Se não for JSON, continua como resposta de texto normal
+        pass
+
+    if calendar_action_response:
+        # Aqui você formataria a resposta do calendário para o usuário
+        # Por enquanto, vamos apenas retornar uma mensagem genérica ou o status
+        if calendar_action_response.get("status") == "success":
+            ai_response = f"Operação de calendário realizada com sucesso: {calendar_action_response.get("message", "")}"
+        else:
+            ai_response = f"Erro na operação de calendário: {calendar_action_response.get("message", "")}"
 
     if not ai_response:
         ai_response = "Desculpe, não consegui processar sua solicitação no momento. Pode tentar reformular?"
