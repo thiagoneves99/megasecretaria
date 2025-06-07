@@ -1,113 +1,135 @@
 import os
 import pickle
-from datetime import datetime, timedelta
-from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google.auth.exceptions import RefreshError
-from googleapiclient.errors import HttpError
+from googleapiclient.discovery import build
 
-SCOPES = ['https://www.googleapis.com/auth/calendar']
-
-def get_token_path():
-    token_path = os.getenv('GOOGLE_TOKEN_PATH')
-    if not token_path:
-        raise Exception("Variável de ambiente GOOGLE_TOKEN_PATH não configurada")
-    return token_path
+from datetime import datetime, timedelta
+import pytz
 
 def get_calendar_service():
     try:
-        token_path = get_token_path()
-        creds = None
-        if os.path.exists(token_path):
-            with open(token_path, 'rb') as token:
-                creds = pickle.load(token)
-        else:
-            raise Exception(f"Arquivo de token não encontrado no caminho: {token_path}")
+        token_path = os.getenv("GOOGLE_TOKEN_PATH")
+        if not token_path or not os.path.exists(token_path):
+            print("[ERRO Google Calendar] Variável de ambiente GOOGLE_TOKEN_PATH não definida ou arquivo não encontrado.")
+            return None
 
-        if not creds or not creds.valid:
-            if creds and creds.expired and creds.refresh_token:
-                try:
-                    creds.refresh(Request())
-                except RefreshError:
-                    raise Exception("Token expirado e não foi possível renovar.")
-            else:
-                raise Exception("Credenciais inválidas e sem token válido.")
+        with open(token_path, "rb") as token:
+            creds = pickle.load(token)
 
-        service = build('calendar', 'v3', credentials=creds)
+        service = build("calendar", "v3", credentials=creds)
         return service
 
     except Exception as e:
-        print(f"[ERRO] Falha ao obter serviço do Google Calendar: {e}")
+        print(f"[ERRO Google Calendar] Falha ao obter serviço: {e}")
         return None
 
 def create_calendar_event(service, parameters):
     try:
-        summary = parameters.get('summary')
-        start_str = parameters.get('start_datetime')  # ISO 8601 string esperado
+        summary = parameters.get("summary")
+        start_datetime = parameters.get("start_datetime")
 
-        if not summary or not start_str:
+        # Se a IA mandou separado (start_date + start_time), montamos start_datetime
+        if not start_datetime:
+            start_date = parameters.get("start_date")
+            start_time = parameters.get("start_time")
+            if start_date and start_time:
+                start_datetime = f"{start_date}T{start_time}:00"
+
+        # Verificação final
+        if not summary or not start_datetime:
             return {"status": "error", "message": "Parâmetros summary e start_datetime são obrigatórios"}
 
-        dt_inicio = datetime.fromisoformat(start_str)
-        dt_fim = dt_inicio + timedelta(hours=1)  # Evento dura 1 hora por padrão
+        # Definir timezone fixo para SP
+        timezone = "America/Sao_Paulo"
 
-        evento = {
-            'summary': summary,
-            'start': {
-                'dateTime': dt_inicio.isoformat(),
-                'timeZone': 'America/Sao_Paulo',
+        # Criar datetimes para início e fim (1 hora de duração)
+        start_dt = datetime.strptime(start_datetime, "%Y-%m-%dT%H:%M:%S")
+        start_dt = pytz.timezone(timezone).localize(start_dt)
+        end_dt = start_dt + timedelta(hours=1)
+
+        event_body = {
+            "summary": summary,
+            "start": {
+                "dateTime": start_dt.isoformat(),
+                "timeZone": timezone,
             },
-            'end': {
-                'dateTime': dt_fim.isoformat(),
-                'timeZone': 'America/Sao_Paulo',
+            "end": {
+                "dateTime": end_dt.isoformat(),
+                "timeZone": timezone,
             },
         }
 
-        evento_criado = service.events().insert(calendarId='primary', body=evento).execute()
-        return {"status": "success", "message": f"Evento '{summary}' criado com ID {evento_criado.get('id')}"}
+        event = service.events().insert(calendarId="primary", body=event_body).execute()
+        return {"status": "success", "message": f"Evento criado: {event.get('htmlLink')}"}
 
-    except HttpError as error:
-        return {"status": "error", "message": f"Erro na API do Google Calendar: {error}"}
     except Exception as e:
+        print(f"[ERRO Google Calendar] {e}")
         return {"status": "error", "message": str(e)}
 
-def list_calendar_events(service, time_min, time_max):
+def list_calendar_events(service, time_min=None, time_max=None):
     try:
         events_result = service.events().list(
-            calendarId='primary', timeMin=time_min,
-            timeMax=time_max, singleEvents=True,
-            orderBy='startTime').execute()
-        events = events_result.get('items', [])
-        return {"status": "success", "events": events}
+            calendarId="primary",
+            timeMin=time_min,
+            timeMax=time_max,
+            singleEvents=True,
+            orderBy="startTime"
+        ).execute()
+
+        events = events_result.get("items", [])
+        events_list = []
+        for event in events:
+            events_list.append({
+                "summary": event.get("summary"),
+                "start": event["start"].get("dateTime", event["start"].get("date")),
+                "end": event["end"].get("dateTime", event["end"].get("date"))
+            })
+
+        return {"status": "success", "message": events_list}
+
     except Exception as e:
+        print(f"[ERRO Google Calendar] {e}")
         return {"status": "error", "message": str(e)}
 
 def update_calendar_event(service, event_id, updated_event_data):
     try:
-        event = service.events().get(calendarId='primary', eventId=event_id).execute()
+        event = service.events().get(calendarId="primary", eventId=event_id).execute()
         event.update(updated_event_data)
-        updated_event = service.events().update(calendarId='primary', eventId=event_id, body=event).execute()
-        return {"status": "success", "message": f"Evento {event_id} atualizado com sucesso"}
+
+        updated_event = service.events().update(calendarId="primary", eventId=event["id"], body=event).execute()
+        return {"status": "success", "message": f"Evento atualizado: {updated_event.get('htmlLink')}"}
+
     except Exception as e:
+        print(f"[ERRO Google Calendar] {e}")
         return {"status": "error", "message": str(e)}
 
 def delete_calendar_event(service, event_id):
     try:
-        service.events().delete(calendarId='primary', eventId=event_id).execute()
-        return {"status": "success", "message": f"Evento {event_id} deletado com sucesso"}
+        service.events().delete(calendarId="primary", eventId=event_id).execute()
+        return {"status": "success", "message": "Evento deletado com sucesso"}
+
     except Exception as e:
+        print(f"[ERRO Google Calendar] {e}")
         return {"status": "error", "message": str(e)}
 
 def check_calendar_availability(service, time_min, time_max):
     try:
-        body = {
-            "timeMin": time_min,
-            "timeMax": time_max,
-            "items": [{"id": "primary"}]
+        events_result = service.events().list(
+            calendarId="primary",
+            timeMin=time_min,
+            timeMax=time_max,
+            singleEvents=True,
+            orderBy="startTime"
+        ).execute()
+
+        events = events_result.get("items", [])
+        is_available = len(events) == 0
+
+        return {
+            "status": "success",
+            "message": "Disponível" if is_available else "Indisponível"
         }
-        freebusy_result = service.freebusy().query(body=body).execute()
-        busy_times = freebusy_result['calendars']['primary']['busy']
-        return {"status": "success", "busy": busy_times}
+
     except Exception as e:
+        print(f"[ERRO Google Calendar] {e}")
         return {"status": "error", "message": str(e)}

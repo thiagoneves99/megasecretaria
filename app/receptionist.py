@@ -1,16 +1,4 @@
-from .utils.ai_client import get_ai_response
-from .utils.whatsapp_client import send_whatsapp_message
-from .utils.db_handler import save_message, get_conversation_history
-from .utils.google_calendar_client import (
-    get_calendar_service, create_calendar_event, list_calendar_events,
-    update_calendar_event, delete_calendar_event, check_calendar_availability
-)
-from config.settings import ALLOWED_PHONE_NUMBER
-import tiktoken
-import json
-import re
-from datetime import datetime, timedelta
-import pytz
+# ... seus imports aqui (não mudou) ...
 
 MAX_TOKENS_HISTORY = 1000
 
@@ -70,6 +58,7 @@ As ações possíveis são: create_event, list_events, update_event, delete_even
 
 - Datas: Use sempre o formato YYYY-MM-DD. "Hoje" corresponde a {current_date}, "amanhã" a {tomorrow_date}.
 - Horários: Use sempre o formato HH:MM (24 horas), considerando o fuso horário do Brasil (America/Sao_Paulo).
+- IMPORTANTE: Para a ação "create_event", sempre informe o campo "start_datetime" no formato "YYYY-MM-DDTHH:MM:SS". NÃO utilize "start_date" ou "start_time" separadamente.
 
 5. **Limitações:** Se não souber como responder a uma solicitação ou se ela estiver fora de suas capacidades, informe o usuário educadamente.
 6. **Tom de Voz:** Mantenha um tom profissional e prestativo.
