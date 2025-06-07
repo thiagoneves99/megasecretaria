@@ -1,5 +1,3 @@
-# app/receptionist.py
-
 from .utils.ai_client import get_ai_response
 from .utils.whatsapp_client import send_whatsapp_message
 from .utils.db_handler import save_message, get_conversation_history
@@ -14,20 +12,14 @@ import re
 from datetime import datetime, timedelta
 import pytz
 
-# Definir tokens máximos para o histórico
 MAX_TOKENS_HISTORY = 1000
 
 def handle_incoming_message(sender_number: str, message_text: str):
-    """Processa uma mensagem recebida, interage com a IA, responde e salva a resposta."""
     print(f"Processando mensagem de {sender_number}: {message_text}")
 
-    # Definir o título do usuário
     user_designation = "Meu Mestre" if sender_number == ALLOWED_PHONE_NUMBER.lstrip("+") else "o usuário"
-
-    # Recuperar o histórico de conversas
     history = get_conversation_history(sender_number, limit=20)
 
-    # Preparar o histórico respeitando o limite de tokens
     encoding = tiktoken.encoding_for_model("gpt-4o-mini")
     current_history_tokens = 0
     context_messages = []
@@ -42,14 +34,12 @@ def handle_incoming_message(sender_number: str, message_text: str):
         context_messages.insert(0, {"role": role, "content": msg_text})
         current_history_tokens += message_tokens
 
-    # Obter data e hora atual do Brasil
     brazil_timezone = pytz.timezone("America/Sao_Paulo")
     now_brazil = datetime.now(brazil_timezone)
     current_date = now_brazil.strftime("%Y-%m-%d")
     current_time = now_brazil.strftime("%H:%M")
     tomorrow_date = (now_brazil + timedelta(days=1)).strftime("%Y-%m-%d")
 
-    # Construir o prompt para a IA
     messages_for_ai = []
     messages_for_ai.append({"role": "system", "content": f"""
 <instrucoes>
@@ -92,61 +82,53 @@ Data de amanhã (Brasil): {tomorrow_date}
 </informacoes_de_contexto>
 """})
 
-    # Adicionar histórico e mensagem atual
     messages_for_ai.extend(context_messages)
     messages_for_ai.append({"role": "user", "content": f"{user_designation} disse: {message_text}"})
 
-    # Obter resposta da IA
     ai_response = get_ai_response(messages_for_ai)
 
     calendar_action_response = None
-
-    # Pré-processar a resposta para limpar ```json e ```
     ai_response_clean = re.sub(r"```json|```", "", ai_response).strip()
 
     try:
-        # Tentar interpretar como JSON
         ai_response_json = json.loads(ai_response_clean)
         action = ai_response_json.get("action")
         parameters = ai_response_json.get("parameters", {})
 
-        service = get_calendar_service()
-
-        if not service:
-            ai_response = "Desculpe, não consegui conectar ao Google Calendar no momento."
-        else:
-            if action == "create_event":
-                calendar_action_response = create_calendar_event(service, parameters)
-            elif action == "list_events":
-                calendar_action_response = list_calendar_events(service, parameters.get("time_min"), parameters.get("time_max"))
-            elif action == "update_event":
-                calendar_action_response = update_calendar_event(service, parameters.get("event_id"), parameters.get("updated_event_data"))
-            elif action == "delete_event":
-                calendar_action_response = delete_calendar_event(service, parameters.get("event_id"))
-            elif action == "check_availability":
-                calendar_action_response = check_calendar_availability(service, parameters.get("time_min"), parameters.get("time_max"))
+        try:
+            service = get_calendar_service()
+            if not service:
+                ai_response = "Desculpe, não consegui conectar ao Google Calendar no momento."
             else:
-                # Caso a ação não seja reconhecida, mantém a resposta da IA como texto
-                pass
+                if action == "create_event":
+                    calendar_action_response = create_calendar_event(service, parameters)
+                elif action == "list_events":
+                    calendar_action_response = list_calendar_events(service, parameters.get("time_min"), parameters.get("time_max"))
+                elif action == "update_event":
+                    calendar_action_response = update_calendar_event(service, parameters.get("event_id"), parameters.get("updated_event_data"))
+                elif action == "delete_event":
+                    calendar_action_response = delete_calendar_event(service, parameters.get("event_id"))
+                elif action == "check_availability":
+                    calendar_action_response = check_calendar_availability(service, parameters.get("time_min"), parameters.get("time_max"))
+                else:
+                    pass
+        except Exception as e:
+            print(f"[ERRO Google Calendar] {e}")
+            ai_response = f"Erro ao acessar Google Calendar: {e}"
 
     except json.JSONDecodeError:
-        # Se não for um JSON válido, manter como texto natural
         pass
 
-    # Se a operação de calendário foi executada, formatar a resposta
     if calendar_action_response:
         if calendar_action_response.get("status") == "success":
             ai_response = f"Operação de calendário realizada com sucesso: {calendar_action_response.get('message', '')}"
         else:
             ai_response = f"Erro na operação de calendário: {calendar_action_response.get('message', '')}"
 
-    # Se por algum motivo não temos resposta da IA
     if not ai_response:
         ai_response = "Desculpe, não consegui processar sua solicitação no momento. Pode tentar reformular?"
 
-    # Enviar resposta via WhatsApp
     print(f"Enviando resposta para {sender_number}: {ai_response}")
     send_whatsapp_message(sender_number, ai_response)
 
-    # Salvar a resposta no banco
     save_message(sender_number, ai_response, direction="outgoing")
