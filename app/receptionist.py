@@ -14,6 +14,13 @@ import pytz
 
 MAX_TOKENS_HISTORY = 1000
 
+# Controle simples para evitar criar eventos duplicados
+last_event_created = {
+    "summary": None,
+    "start": None,
+    "timestamp": None
+}
+
 def handle_incoming_message(sender_number: str, message_text: str):
     print(f"Processando mensagem de {sender_number}: {message_text}")
 
@@ -95,23 +102,35 @@ Data de amanhã (Brasil): {tomorrow_date}
         action = ai_response_json.get("action")
         parameters = ai_response_json.get("parameters", {})
 
-        # Ajusta a duração do evento para 1 hora se for create_event e start_datetime estiver presente
-        if action == "create_event":
-            start_str = parameters.get("start_datetime")
-            if start_str:
-                start_dt = datetime.strptime(start_str, "%Y-%m-%dT%H:%M:%S")
-                end_dt = start_dt + timedelta(hours=1)
-                end_str = end_dt.strftime("%Y-%m-%dT%H:%M:%S")
-                parameters["end_datetime"] = end_str
-                parameters["timezone"] = "America/Sao_Paulo"
-
         try:
             service = get_calendar_service()
             if not service:
                 ai_response = "Desculpe, não consegui conectar ao Google Calendar no momento."
             else:
                 if action == "create_event":
-                    calendar_action_response = create_calendar_event(service, parameters)
+                    # Proteção contra duplicado (simples)
+                    global last_event_created
+                    current_time_check = datetime.now()
+
+                    is_duplicate = (
+                        last_event_created["summary"] == parameters.get("summary") and
+                        last_event_created["start"] == parameters.get("start_datetime") and
+                        last_event_created["timestamp"] is not None and
+                        (current_time_check - last_event_created["timestamp"]).total_seconds() < 60
+                    )
+
+                    if is_duplicate:
+                        ai_response = "Evento já foi criado recentemente. Evitando duplicação."
+                    else:
+                        calendar_action_response = create_calendar_event(service, parameters)
+
+                        # Atualiza controle de duplicação
+                        last_event_created = {
+                            "summary": parameters.get("summary"),
+                            "start": parameters.get("start_datetime"),
+                            "timestamp": datetime.now()
+                        }
+
                 elif action == "list_events":
                     calendar_action_response = list_calendar_events(service, parameters.get("time_min"), parameters.get("time_max"))
                 elif action == "update_event":
@@ -131,7 +150,16 @@ Data de amanhã (Brasil): {tomorrow_date}
 
     if calendar_action_response:
         if calendar_action_response.get("status") == "success":
-            ai_response = f"Operação de calendário realizada com sucesso: {calendar_action_response.get('message', '')}"
+            if action == "create_event":
+                ai_response = (
+                    f"✅ Evento criado com sucesso!\n\n"
+                    f"📌 *{calendar_action_response.get('summary')}*\n"
+                    f"🕒 Início: {calendar_action_response.get('start')}\n"
+                    f"🕒 Fim: {calendar_action_response.get('end')}\n"
+                    f"🔗 [Ver no Google Calendar]({calendar_action_response.get('htmlLink')})"
+                )
+            else:
+                ai_response = f"Operação de calendário realizada com sucesso: {calendar_action_response.get('message', '')}"
         else:
             ai_response = f"Erro na operação de calendário: {calendar_action_response.get('message', '')}"
 
