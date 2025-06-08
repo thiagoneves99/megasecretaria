@@ -33,65 +33,62 @@ def get_calendar_service():
         print(f"[ERRO get_calendar_service] {e}")
         return None
 
-def ensure_rfc3339_with_timezone(dt_str):
-    # Se já tem timezone, retorna como está
-    if dt_str.endswith("Z") or "+" in dt_str or "-" in dt_str[10:]:
-        return dt_str
-    else:
-        # Default para o Brasil
-        return dt_str + "-03:00"
+def format_datetime(datetime_str):
+    try:
+        dt = datetime.fromisoformat(datetime_str.replace("Z", "+00:00"))
+        dt_br = dt.astimezone(pytz.timezone("America/Sao_Paulo"))
+        return dt_br.strftime("%d/%m/%Y %H:%M")
+    except Exception as e:
+        print(f"[ERRO format_datetime] {e}")
+        return datetime_str
 
-def create_calendar_event(service, parameters):
+def create_calendar_event(service, parameters, force=False):
     try:
         summary = parameters.get("summary")
         start_datetime = parameters.get("start_datetime")
         end_datetime = parameters.get("end_datetime")
         timezone = parameters.get("timezone", "America/Sao_Paulo")
-        force_create = parameters.get("force", False)
 
-        if not summary or not start_datetime or not end_datetime:
-            return {"status": "error", "message": "Parâmetros summary, start_datetime e end_datetime são obrigatórios."}
+        if not summary or not start_datetime:
+            return {"status": "error", "message": "Parâmetros summary e start_datetime são obrigatórios"}
 
-        # Verificar conflitos
-        start_datetime_rfc = ensure_rfc3339_with_timezone(start_datetime)
-        end_datetime_rfc = ensure_rfc3339_with_timezone(end_datetime)
-
-        events_result = service.events().list(
-            calendarId='primary',
-            timeMin=start_datetime_rfc,
-            timeMax=end_datetime_rfc,
-            singleEvents=True,
-            orderBy='startTime'
-        ).execute()
-
-        events = events_result.get('items', [])
-
-        if events and not force_create:
-            # Existe conflito, retorna para o receptionist perguntar
+        # Verificar conflito se não for forçado
+        if not force:
             conflicting_events = []
-            for event in events:
-                conflict_summary = event.get('summary', 'Sem título')
-                conflict_start = event['start'].get('dateTime', event['start'].get('date'))
-                conflict_end = event['end'].get('dateTime', event['end'].get('date'))
+            events_result = service.events().list(
+                calendarId='primary',
+                timeMin=start_datetime,
+                timeMax=end_datetime,
+                singleEvents=True,
+                orderBy='startTime'
+            ).execute()
+
+            for event in events_result.get('items', []):
+                existing_summary = event.get('summary', 'Sem título')
+                existing_start = event['start'].get('dateTime', event['start'].get('date'))
+                existing_end = event['end'].get('dateTime', event['end'].get('date'))
                 conflicting_events.append({
-                    "summary": conflict_summary,
-                    "start": conflict_start,
-                    "end": conflict_end
+                    "summary": existing_summary,
+                    "start": existing_start,
+                    "end": existing_end
                 })
 
-            message = "⚠️ Já existe evento(s) neste horário:\n\n"
-            for ce in conflicting_events:
-                message += f"- {ce['summary']} das {ce['start']} até {ce['end']}\n"
+            if conflicting_events:
+                conflict_message = "⚠️ Já existe evento(s) neste horário:\n\n"
+                for event in conflicting_events:
+                    conflict_message += f"- {event['summary']} das {format_datetime(event['start'])} até {format_datetime(event['end'])}\n"
+                conflict_message += "\nDeseja marcar este novo evento mesmo assim? (Responda com 'sim' para confirmar ou 'não' para escolher outro horário)."
 
-            message += "\nDeseja marcar este novo evento mesmo assim? (Responda com 'sim' para confirmar ou 'não' para escolher outro horário)."
+                return {
+                    "status": "conflict",
+                    "message": conflict_message,
+                    "pending_action": {
+                        "action": "create_event",
+                        "parameters": parameters
+                    }
+                }
 
-            return {
-                "status": "conflict",
-                "message": message,
-                "conflicting_events": conflicting_events
-            }
-
-        # Se não houver conflito, ou se force_create for True, cria o evento
+        # Criar evento
         event = {
             "summary": summary,
             "start": {
@@ -106,21 +103,14 @@ def create_calendar_event(service, parameters):
 
         created_event = service.events().insert(calendarId='primary', body=event).execute()
 
-        message = (
-            f"✅ Evento criado com sucesso!\n\n"
-            f"📌 *{summary}*\n"
-            f"🕒 Início: {start_datetime}\n"
-            f"🕒 Fim: {end_datetime}\n"
-            f"🔗 [Ver no Google Calendar]({created_event.get('htmlLink')})"
-        )
-
         return {
             "status": "success",
-            "message": message,
-            "summary": summary,
-            "start": start_datetime,
-            "end": end_datetime,
-            "htmlLink": created_event.get('htmlLink')
+            "message": (
+                f"✅ Evento criado com sucesso!\n\n"
+                f"📌 {summary}\n"
+                f"🕒 Início: {format_datetime(start_datetime)}\n"
+                f"🕒 Fim: {format_datetime(end_datetime)}"
+            )
         }
 
     except Exception as e:
@@ -129,13 +119,10 @@ def create_calendar_event(service, parameters):
 
 def list_calendar_events(service, time_min, time_max):
     try:
-        time_min_rfc = ensure_rfc3339_with_timezone(time_min)
-        time_max_rfc = ensure_rfc3339_with_timezone(time_max)
-
         events_result = service.events().list(
             calendarId='primary',
-            timeMin=time_min_rfc,
-            timeMax=time_max_rfc,
+            timeMin=time_min,
+            timeMax=time_max,
             singleEvents=True,
             orderBy='startTime'
         ).execute()
@@ -144,11 +131,11 @@ def list_calendar_events(service, time_min, time_max):
         if not events:
             return {"status": "success", "message": "Nenhum evento encontrado neste intervalo."}
 
-        message = "📅 Eventos encontrados:\n"
+        message = "Eventos encontrados:\n"
         for event in events:
             start = event['start'].get('dateTime', event['start'].get('date'))
             summary = event.get('summary', 'Sem título')
-            message += f"- {summary} em {start}\n"
+            message += f"- {summary} em {format_datetime(start)}\n"
 
         return {"status": "success", "message": message}
 
@@ -164,7 +151,7 @@ def update_calendar_event(service, event_id, updated_event_data):
 
         updated_event = service.events().update(calendarId='primary', eventId=event_id, body=event).execute()
 
-        return {"status": "success", "message": f"Evento atualizado: {updated_event.get('htmlLink')}"}
+        return {"status": "success", "message": f"Evento atualizado com sucesso."}
 
     except Exception as e:
         print(f"[ERRO update_calendar_event] {e}")
@@ -181,13 +168,10 @@ def delete_calendar_event(service, event_id):
 
 def check_calendar_availability(service, time_min, time_max):
     try:
-        time_min_rfc = ensure_rfc3339_with_timezone(time_min)
-        time_max_rfc = ensure_rfc3339_with_timezone(time_max)
-
         events_result = service.events().list(
             calendarId='primary',
-            timeMin=time_min_rfc,
-            timeMax=time_max_rfc,
+            timeMin=time_min,
+            timeMax=time_max,
             singleEvents=True,
             orderBy='startTime'
         ).execute()
@@ -196,7 +180,13 @@ def check_calendar_availability(service, time_min, time_max):
         if not events:
             return {"status": "success", "message": "O horário está disponível."}
         else:
-            return {"status": "success", "message": "O horário já possui eventos agendados."}
+            message = "O horário já possui eventos agendados:\n"
+            for event in events:
+                start = event['start'].get('dateTime', event['start'].get('date'))
+                summary = event.get('summary', 'Sem título')
+                message += f"- {summary} em {format_datetime(start)}\n"
+
+            return {"status": "success", "message": message}
 
     except Exception as e:
         print(f"[ERRO check_calendar_availability] {e}")
