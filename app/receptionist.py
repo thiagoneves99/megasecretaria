@@ -21,13 +21,49 @@ last_event_created = {
     "timestamp": None
 }
 
+# Estado da conversa para cada usuário (em memória)
+conversation_state = {}
+
 def handle_incoming_message(sender_number: str, message_text: str):
-    global last_event_created
+    global last_event_created, conversation_state
+
     print(f"Processando mensagem de {sender_number}: {message_text}")
 
     user_designation = "Meu Mestre" if sender_number == ALLOWED_PHONE_NUMBER.lstrip("+") else "o usuário"
     history = get_conversation_history(sender_number, limit=20)
 
+    # Normaliza texto para facilitar lógica
+    text_lower = message_text.strip().lower()
+
+    # 1) Verifica se está aguardando confirmação do usuário para criar evento mesmo com conflito
+    if sender_number in conversation_state and conversation_state[sender_number].get("awaiting_confirmation"):
+        if text_lower == "sim":
+            params = conversation_state[sender_number]["pending_event_params"]
+            service = get_calendar_service()
+            if service:
+                calendar_action_response = create_calendar_event(service, params)
+                response = calendar_action_response.get("message", "Evento criado conforme solicitado.")
+            else:
+                response = "Não foi possível acessar o calendário para criar o evento."
+            # Limpa estado após confirmação
+            conversation_state.pop(sender_number, None)
+            send_whatsapp_message(sender_number, response)
+            save_message(sender_number, response, direction="outgoing")
+            return
+        elif text_lower in ["não", "nao"]:
+            response = "Ok, então escolha outro horário para o evento."
+            conversation_state.pop(sender_number, None)
+            send_whatsapp_message(sender_number, response)
+            save_message(sender_number, response, direction="outgoing")
+            return
+        else:
+            # Resposta inválida
+            response = "Por favor, responda com 'sim' para confirmar ou 'não' para escolher outro horário."
+            send_whatsapp_message(sender_number, response)
+            save_message(sender_number, response, direction="outgoing")
+            return
+
+    # 2) Monta histórico para contexto de IA
     encoding = tiktoken.encoding_for_model("gpt-4o-mini")
     current_history_tokens = 0
     context_messages = []
@@ -35,10 +71,8 @@ def handle_incoming_message(sender_number: str, message_text: str):
     for msg_text, msg_direction in reversed(history):
         role = "user" if msg_direction == "incoming" else "assistant"
         message_tokens = len(encoding.encode(msg_text))
-
         if current_history_tokens + message_tokens > MAX_TOKENS_HISTORY:
             break
-
         context_messages.insert(0, {"role": role, "content": msg_text})
         current_history_tokens += message_tokens
 
@@ -48,6 +82,7 @@ def handle_incoming_message(sender_number: str, message_text: str):
     current_time = now_brazil.strftime("%H:%M")
     tomorrow_date = (now_brazil + timedelta(days=1)).strftime("%Y-%m-%d")
 
+    # 3) Mensagens para a IA
     messages_for_ai = []
     messages_for_ai.append({"role": "system", "content": f"""
 <instrucoes>
@@ -89,10 +124,10 @@ Hora atual (Brasil): {current_time}
 Data de amanhã (Brasil): {tomorrow_date}
 </informacoes_de_contexto>
 """})
-
     messages_for_ai.extend(context_messages)
     messages_for_ai.append({"role": "user", "content": f"{user_designation} disse: {message_text}"})
 
+    # 4) Chama a IA
     ai_response = get_ai_response(messages_for_ai)
 
     calendar_action_response = None
@@ -103,13 +138,12 @@ Data de amanhã (Brasil): {tomorrow_date}
         action = ai_response_json.get("action")
         parameters = ai_response_json.get("parameters", {})
 
+        # Ajustar datetime para ISO 8601 com timezone se for create_event
         if action == "create_event":
             tz = pytz.timezone(parameters.get("timezone", "America/Sao_Paulo"))
 
             def parse_datetime(dt_str):
                 try:
-                    if dt_str.endswith("Z"):
-                        dt_str = dt_str[:-1] + "+00:00"
                     dt = datetime.fromisoformat(dt_str)
                     if dt.tzinfo is None:
                         dt = tz.localize(dt)
@@ -128,32 +162,49 @@ Data de amanhã (Brasil): {tomorrow_date}
         if not service:
             ai_response = "Desculpe, não consegui conectar ao Google Calendar no momento."
         else:
-            current_time_check = datetime.now(pytz.timezone("America/Sao_Paulo"))
+            global last_event_created
+            current_time_check = datetime.now()
 
             if action == "create_event":
+                # Verifica parâmetros mínimos
                 if not parameters.get("summary") or not parameters.get("start_datetime") or not parameters.get("end_datetime"):
-                    calendar_action_response = {
-                        "message": "Parâmetros summary, start_datetime e end_datetime são obrigatórios para criar evento."
-                    }
+                    ai_response = "Parâmetros summary, start_datetime e end_datetime são obrigatórios para criar evento."
                 else:
-                    is_duplicate = (
-                        last_event_created["summary"] == parameters.get("summary") and
-                        last_event_created["start"] == parameters.get("start_datetime") and
-                        last_event_created["timestamp"] is not None and
-                        (current_time_check - last_event_created["timestamp"]).total_seconds() < 60
-                    )
-                    if is_duplicate:
-                        calendar_action_response = {
-                            "message": "Evento já foi criado recentemente. Evitando duplicação."
-                        }
-                    else:
-                        calendar_action_response = create_calendar_event(service, parameters)
-                        last_event_created = {
-                            "summary": parameters.get("summary"),
-                            "start": parameters.get("start_datetime"),
-                            "timestamp": current_time_check
+                    # Verifica eventos conflitantes
+                    conflitantes = check_calendar_availability(service, parameters["start_datetime"], parameters["end_datetime"])
+                    if conflitantes and len(conflitantes) > 0:
+                        # Guarda estado para confirmação
+                        conversation_state[sender_number] = {
+                            "awaiting_confirmation": True,
+                            "pending_event_params": parameters
                         }
 
+                        # Formata mensagem de conflito
+                        msg = "⚠️ Já existe evento(s) neste horário:\n\n"
+                        for ev in conflitantes:
+                            start_str = datetime.fromisoformat(ev["start"]).strftime("%d/%m/%Y %H:%M")
+                            end_str = datetime.fromisoformat(ev["end"]).strftime("%d/%m/%Y %H:%M")
+                            msg += f"- {ev['summary']} das {start_str} até {end_str}\n"
+                        msg += "\nDeseja marcar este novo evento mesmo assim? (Responda com 'sim' para confirmar ou 'não' para escolher outro horário)."
+
+                        ai_response = msg
+                    else:
+                        # Evita duplicação
+                        is_duplicate = (
+                            last_event_created["summary"] == parameters.get("summary") and
+                            last_event_created["start"] == parameters.get("start_datetime") and
+                            last_event_created["timestamp"] is not None and
+                            (current_time_check - last_event_created["timestamp"]).total_seconds() < 60
+                        )
+                        if is_duplicate:
+                            ai_response = "Evento já foi criado recentemente. Evitando duplicação."
+                        else:
+                            calendar_action_response = create_calendar_event(service, parameters)
+                            last_event_created = {
+                                "summary": parameters.get("summary"),
+                                "start": parameters.get("start_datetime"),
+                                "timestamp": datetime.now()
+                            }
             elif action == "list_events":
                 calendar_action_response = list_calendar_events(service, parameters.get("time_min"), parameters.get("time_max"))
             elif action == "update_event":
@@ -167,15 +218,14 @@ Data de amanhã (Brasil): {tomorrow_date}
         # Se a IA não retornar JSON, mantém resposta original
         pass
     except Exception as e:
-        print(f"[ERRO no processamento da resposta da IA] {e}")
-        ai_response = f"Erro interno ao processar a solicitação: {e}"
+        print(f"[ERRO no processamento do Google Calendar]: {e}")
+        ai_response = f"Erro ao processar sua solicitação: {e}"
 
+    # Se resposta da ação do calendário existir, usa ela
     if calendar_action_response:
         ai_response = calendar_action_response.get("message", ai_response)
 
     if not ai_response:
         ai_response = "Desculpe, não consegui processar sua solicitação no momento. Pode tentar reformular?"
 
-    print(f"Enviando resposta para {sender_number}: {ai_response}")
-    send_whatsapp_message(sender_number, ai_response)
-    save_message(sender_number, ai_response, direction="outgoing")
+    print(f"Enviando resposta para {sender_number}: {ai
