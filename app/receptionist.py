@@ -138,6 +138,29 @@ As ações possíveis são: create_event, list_events, update_event, delete_even
 - Datas: Use sempre o formato YYYY-MM-DD. "Hoje" corresponde a {current_date}, "amanhã" a {tomorrow_date}.
 - Horários: Use sempre o formato HH:MM (24 horas), considerando o fuso horário do Brasil (America/Sao_Paulo).
 
+Para 'delete_event' e 'update_event', o 'event_id' é um parâmetro obrigatório. O 'event_id' deve ser obtido de uma listagem prévia de eventos ou fornecido explicitamente pelo usuário.
+
+Exemplo para deletar um evento:
+{{
+  "action": "delete_event",
+  "parameters": {
+    "event_id": "o_id_do_evento_a_ser_deletado"
+  }
+}}
+
+Exemplo para atualizar um evento:
+{{
+  "action": "update_event",
+  "parameters": {
+    "event_id": "o_id_do_evento_a_ser_atualizado",
+    "updates": {
+      "summary": "Novo Título do Evento",
+      "start_datetime": "YYYY-MM-DD HH:MM",
+      "end_datetime": "YYYY-MM-DD HH:MM"
+    }
+  }
+}}
+
 5. **Limitações:** Se não souber como responder a uma solicitação ou se ela estiver fora de suas capacidades, informe o usuário educadamente.
 6. **Tom de Voz:** Mantenha um tom profissional e prestativo.
 </regras_de_interacao>
@@ -255,9 +278,9 @@ def _process_ai_response(messages_for_ai, sender_number):
                 return "Nenhum evento encontrado no período solicitado.", None
             msg = "Eventos:\n"
             for ev in events:
-                start_str = datetime.fromisoformat(ev["start"]).strftime("%d/%m/%Y %H:%M")
-                end_str = datetime.fromisoformat(ev["end"]).strftime("%d/%m/%Y %H:%M")
-                msg += f"- {ev['summary']} de {start_str} até {end_str}\n"
+                start_str = datetime.fromisoformat(ev["start"].get("dateTime", ev["start"].get("date"))).strftime("%d/%m/%Y %H:%M")
+                end_str = datetime.fromisoformat(ev["end"].get("dateTime", ev["end"].get("date"))).strftime("%d/%m/%Y %H:%M")
+                msg += f"- {ev["summary"]} de {start_str} até {end_str}\n"
             return msg, None
 
         elif action == "update_event":

@@ -148,15 +148,9 @@ def list_calendar_events(service, time_min, time_max):
 
         events = events_result.get('items', [])
         if not events:
-            return {"status": "success", "message": "Nenhum evento encontrado neste intervalo."}
+            return []
 
-        message = "Eventos encontrados:\n"
-        for event in events:
-            start = event['start'].get('dateTime', event['start'].get('date'))
-            summary = event.get('summary', 'Sem título')
-            message += f"- {summary} em {format_datetime(start)}\n"
-
-        return {"status": "success", "message": message}
+        return events
 
     except Exception as e:
         print(f"[ERRO list_calendar_events] {e}")
