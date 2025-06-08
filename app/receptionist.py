@@ -14,14 +14,11 @@ import pytz
 
 MAX_TOKENS_HISTORY = 1000
 
-# Controle simples para evitar criar eventos duplicados
-last_event_created = {
-    "summary": None,
-    "start": None,
-    "timestamp": None
-}
+# Memória temporária para tratar conflitos
+pending_calendar_conflict = {}
 
 def handle_incoming_message(sender_number: str, message_text: str):
+    global pending_calendar_conflict
     print(f"Processando mensagem de {sender_number}: {message_text}")
 
     user_designation = "Meu Mestre" if sender_number == ALLOWED_PHONE_NUMBER.lstrip("+") else "o usuário"
@@ -108,28 +105,11 @@ Data de amanhã (Brasil): {tomorrow_date}
                 ai_response = "Desculpe, não consegui conectar ao Google Calendar no momento."
             else:
                 if action == "create_event":
-                    # Proteção contra duplicado (simples)
-                    global last_event_created
-                    current_time_check = datetime.now()
+                    if pending_calendar_conflict.get(sender_number) == "awaiting_force_create":
+                        parameters["force_create"] = True
+                        pending_calendar_conflict.pop(sender_number, None)
 
-                    is_duplicate = (
-                        last_event_created["summary"] == parameters.get("summary") and
-                        last_event_created["start"] == parameters.get("start_datetime") and
-                        last_event_created["timestamp"] is not None and
-                        (current_time_check - last_event_created["timestamp"]).total_seconds() < 60
-                    )
-
-                    if is_duplicate:
-                        ai_response = "Evento já foi criado recentemente. Evitando duplicação."
-                    else:
-                        calendar_action_response = create_calendar_event(service, parameters)
-
-                        # Atualiza controle de duplicação
-                        last_event_created = {
-                            "summary": parameters.get("summary"),
-                            "start": parameters.get("start_datetime"),
-                            "timestamp": datetime.now()
-                        }
+                    calendar_action_response = create_calendar_event(service, parameters)
 
                 elif action == "list_events":
                     calendar_action_response = list_calendar_events(service, parameters.get("time_min"), parameters.get("time_max"))
@@ -148,20 +128,32 @@ Data de amanhã (Brasil): {tomorrow_date}
     except json.JSONDecodeError:
         pass
 
+    # Processa resposta do calendário
     if calendar_action_response:
-        if calendar_action_response.get("status") == "success":
-            if action == "create_event":
-                ai_response = (
-                    f"✅ Evento criado com sucesso!\n\n"
-                    f"📌 *{calendar_action_response.get('summary')}*\n"
-                    f"🕒 Início: {calendar_action_response.get('start')}\n"
-                    f"🕒 Fim: {calendar_action_response.get('end')}\n"
-                    f"🔗 [Ver no Google Calendar]({calendar_action_response.get('htmlLink')})"
-                )
-            else:
-                ai_response = f"Operação de calendário realizada com sucesso: {calendar_action_response.get('message', '')}"
+        status = calendar_action_response.get("status")
+        if status == "success":
+            ai_response = calendar_action_response.get("message", "")
+        elif status == "conflict":
+            pending_calendar_conflict[sender_number] = "awaiting_force_create"
+            conflict_event = calendar_action_response.get("conflict_event", {})
+            ai_response = (
+                f"{calendar_action_response.get('message')}\n\n"
+                f"Evento em conflito:\n"
+                f"- {conflict_event.get('summary')}\n"
+                f"- Início: {conflict_event.get('start')}\n"
+                f"- Fim: {conflict_event.get('end')}\n\n"
+                "Deseja marcar mesmo assim? Responda 'sim' ou 'não'."
+            )
         else:
             ai_response = f"Erro na operação de calendário: {calendar_action_response.get('message', '')}"
+
+    # Se estamos aguardando resposta sobre conflito
+    elif pending_calendar_conflict.get(sender_number) == "awaiting_force_create":
+        if message_text.lower() in ["sim", "sim quero", "quero marcar"]:
+            ai_response = "Certo! Vou marcar o evento mesmo assim. Por favor, repita o pedido para confirmar."
+        else:
+            ai_response = "Ok, não irei marcar. Por favor, me diga um novo horário que deseja agendar."
+            pending_calendar_conflict.pop(sender_number, None)
 
     if not ai_response:
         ai_response = "Desculpe, não consegui processar sua solicitação no momento. Pode tentar reformular?"

@@ -1,7 +1,7 @@
 import os
 import pickle
 import pytz
-from datetime import datetime, timedelta
+from datetime import datetime
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
@@ -39,10 +39,37 @@ def create_calendar_event(service, parameters):
         start_datetime = parameters.get("start_datetime")
         end_datetime = parameters.get("end_datetime")
         timezone = parameters.get("timezone", "America/Sao_Paulo")
+        force_create = parameters.get("force_create", False)
 
-        if not summary or not start_datetime:
-            return {"status": "error", "message": "Parâmetros summary e start_datetime são obrigatórios"}
+        if not summary or not start_datetime or not end_datetime:
+            return {"status": "error", "message": "Parâmetros summary, start_datetime e end_datetime são obrigatórios."}
 
+        if not force_create:
+            # Verifica conflito
+            events_result = service.events().list(
+                calendarId='primary',
+                timeMin=start_datetime,
+                timeMax=end_datetime,
+                singleEvents=True,
+                orderBy='startTime'
+            ).execute()
+
+            conflicting_events = events_result.get('items', [])
+
+            if conflicting_events:
+                first_conflict = conflicting_events[0]
+                conflict_info = {
+                    "summary": first_conflict.get('summary', 'Sem título'),
+                    "start": first_conflict['start'].get('dateTime', first_conflict['start'].get('date')),
+                    "end": first_conflict['end'].get('dateTime', first_conflict['end'].get('date'))
+                }
+                return {
+                    "status": "conflict",
+                    "message": "⚠️ Já existe um evento neste horário. Deseja marcar mesmo assim?",
+                    "conflict_event": conflict_info
+                }
+
+        # Se não tiver conflito ou se force_create=True
         event = {
             "summary": summary,
             "start": {
@@ -59,6 +86,7 @@ def create_calendar_event(service, parameters):
 
         return {
             "status": "success",
+            "message": "✅ Evento criado com sucesso.",
             "summary": summary,
             "start": start_datetime,
             "end": end_datetime,
