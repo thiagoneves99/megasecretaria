@@ -199,17 +199,9 @@ def check_calendar_availability(service, time_min, time_max):
         ).execute()
 
         events = events_result.get('items', [])
-        if not events:
-            return {"status": "success", "message": "O horário está disponível."}
-        else:
-            message = "O horário já possui eventos agendados:\n"
-            for event in events:
-                start = event['start'].get('dateTime', event['start'].get('date'))
-                summary = event.get('summary', 'Sem título')
-                message += f"- {summary} em {format_datetime(start)}\n"
-
-            return {"status": "success", "message": message}
+        cleaned_events = [event for event in events if isinstance(event, dict)]
+        return cleaned_events
 
     except Exception as e:
         print(f"[ERRO check_calendar_availability] {e}")
-        return {"status": "error", "message": str(e)}
+        return []
