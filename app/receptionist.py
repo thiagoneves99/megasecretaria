@@ -206,9 +206,12 @@ def _process_ai_response(messages_for_ai, sender_number):
 
                 msg = "⚠️ Já existe evento(s) neste horário:\n\n"
                 for ev in conflicts:
+                    if not isinstance(ev, dict):
+                        print(f"Aviso: Item inesperado na lista de conflitos: {ev}. Pulando.")
+                        continue
                     start_str = datetime.fromisoformat(ev["start"]).strftime("%d/%m/%Y %H:%M")
                     end_str = datetime.fromisoformat(ev["end"]).strftime("%d/%m/%Y %H:%M")
-                    msg += f"- {ev['summary']} das {start_str} até {end_str}\n"
+                    msg += f"- {ev["summary"]} das {start_str} até {end_str}\n"
                 msg += "\nDeseja marcar este novo evento mesmo assim? (Responda com 'sim' para confirmar ou 'não' para escolher outro horário)."
 
                 return msg, None
