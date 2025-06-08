@@ -160,6 +160,8 @@ def _process_ai_response(messages_for_ai, sender_number):
     ai_response_clean = re.sub(r"```json|```", "", ai_response).strip()
     try:
         ai_json = json.loads(ai_response_clean)
+        if not isinstance(ai_json, dict):
+            raise json.JSONDecodeError("AI response is not a valid action JSON", ai_response_clean, 0)
         action = ai_json.get("action")
         parameters = ai_json.get("parameters", {})
 
