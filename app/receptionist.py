@@ -102,31 +102,54 @@ Data de amanhã (Brasil): {tomorrow_date}
         action = ai_response_json.get("action")
         parameters = ai_response_json.get("parameters", {})
 
+        # Ajustar datetime para ISO 8601 com timezone se for create_event
+        if action == "create_event":
+            tz = pytz.timezone(parameters.get("timezone", "America/Sao_Paulo"))
+            # Converte start_datetime e end_datetime para string ISO com timezone
+            def parse_datetime(dt_str):
+                try:
+                    dt = datetime.fromisoformat(dt_str)
+                    if dt.tzinfo is None:
+                        dt = tz.localize(dt)
+                    else:
+                        dt = dt.astimezone(tz)
+                    return dt.isoformat()
+                except Exception:
+                    return dt_str
+
+            if "start_datetime" in parameters:
+                parameters["start_datetime"] = parse_datetime(parameters["start_datetime"])
+            if "end_datetime" in parameters:
+                parameters["end_datetime"] = parse_datetime(parameters["end_datetime"])
+
         try:
             service = get_calendar_service()
             if not service:
                 ai_response = "Desculpe, não consegui conectar ao Google Calendar no momento."
             else:
+                global last_event_created
+                current_time_check = datetime.now()
+
                 if action == "create_event":
-                    global last_event_created
-                    current_time_check = datetime.now()
-
-                    is_duplicate = (
-                        last_event_created["summary"] == parameters.get("summary") and
-                        last_event_created["start"] == parameters.get("start_datetime") and
-                        last_event_created["timestamp"] is not None and
-                        (current_time_check - last_event_created["timestamp"]).total_seconds() < 60
-                    )
-
-                    if is_duplicate:
-                        ai_response = "Evento já foi criado recentemente. Evitando duplicação."
+                    # Verifica parâmetros mínimos
+                    if not parameters.get("summary") or not parameters.get("start_datetime") or not parameters.get("end_datetime"):
+                        ai_response = "Parâmetros summary, start_datetime e end_datetime são obrigatórios para criar evento."
                     else:
-                        calendar_action_response = create_calendar_event(service, parameters)
-                        last_event_created = {
-                            "summary": parameters.get("summary"),
-                            "start": parameters.get("start_datetime"),
-                            "timestamp": datetime.now()
-                        }
+                        is_duplicate = (
+                            last_event_created["summary"] == parameters.get("summary") and
+                            last_event_created["start"] == parameters.get("start_datetime") and
+                            last_event_created["timestamp"] is not None and
+                            (current_time_check - last_event_created["timestamp"]).total_seconds() < 60
+                        )
+                        if is_duplicate:
+                            ai_response = "Evento já foi criado recentemente. Evitando duplicação."
+                        else:
+                            calendar_action_response = create_calendar_event(service, parameters)
+                            last_event_created = {
+                                "summary": parameters.get("summary"),
+                                "start": parameters.get("start_datetime"),
+                                "timestamp": datetime.now()
+                            }
 
                 elif action == "list_events":
                     calendar_action_response = list_calendar_events(service, parameters.get("time_min"), parameters.get("time_max"))
@@ -136,15 +159,16 @@ Data de amanhã (Brasil): {tomorrow_date}
                     calendar_action_response = delete_calendar_event(service, parameters.get("event_id"))
                 elif action == "check_availability":
                     calendar_action_response = check_calendar_availability(service, parameters.get("time_min"), parameters.get("time_max"))
+
         except Exception as e:
             print(f"[ERRO Google Calendar] {e}")
             ai_response = f"Erro ao acessar Google Calendar: {e}"
 
     except json.JSONDecodeError:
+        # Se a IA não retornar JSON, mantém resposta original
         pass
 
     if calendar_action_response:
-        # Passa direto a resposta pronta do módulo Google Calendar
         ai_response = calendar_action_response.get("message", ai_response)
 
     if not ai_response:
@@ -152,5 +176,4 @@ Data de amanhã (Brasil): {tomorrow_date}
 
     print(f"Enviando resposta para {sender_number}: {ai_response}")
     send_whatsapp_message(sender_number, ai_response)
-
     save_message(sender_number, ai_response, direction="outgoing")
