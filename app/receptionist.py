@@ -74,11 +74,12 @@ def _handle_confirmation_response(sender_number, text_lower):
         params = state["pending_event_params"]
         service = get_calendar_service()
         if service:
-            calendar_resp = create_calendar_event(service, params)
-            response = calendar_resp.get("message", "Evento criado conforme solicitado.")
-        else:
-            response = "Não foi possível acessar o calendário para criar o evento."
-        conversation_state.pop(sender_number, None)
+            calendar_resp = create_calendar_event(service, params, force=True)
+            if calendar_resp.get("status") == "success":
+                response = calendar_resp.get("message", "Evento criado conforme solicitado.")
+                conversation_state.pop(sender_number, None)
+            else:
+                response = calendar_resp.get("message", "Erro ao criar evento após confirmação. Por favor, tente novamente.")
     elif text_lower in ["não", "nao"]:
         response = "Ok, então escolha outro horário para o evento."
         conversation_state.pop(sender_number, None)

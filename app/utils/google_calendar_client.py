@@ -64,8 +64,8 @@ def create_calendar_event(service, parameters, force=False):
         end_datetime = parameters.get("end_datetime")
         timezone = parameters.get("timezone", "America/Sao_Paulo")
 
-        if not summary or not start_datetime:
-            return {"status": "error", "message": "Parâmetros summary e start_datetime são obrigatórios"}
+        if not summary or not start_datetime or not end_datetime:
+            return {"status": "error", "message": "Parâmetros summary, start_datetime e end_datetime são obrigatórios"}
 
         start_datetime = ensure_datetime_with_timezone(start_datetime, timezone)
         end_datetime = ensure_datetime_with_timezone(end_datetime, timezone)
