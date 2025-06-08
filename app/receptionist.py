@@ -1,134 +1,156 @@
-import os
+from .utils.ai_client import get_ai_response
+from .utils.whatsapp_client import send_whatsapp_message
+from .utils.db_handler import save_message, get_conversation_history
+from .utils.google_calendar_client import (
+    get_calendar_service, create_calendar_event, list_calendar_events,
+    update_calendar_event, delete_calendar_event, check_calendar_availability
+)
+from config.settings import ALLOWED_PHONE_NUMBER
+import tiktoken
 import json
-import requests
-import openai
 import re
-from dotenv import load_dotenv
-from google_calendar_client import get_calendar_service, create_calendar_event, list_calendar_events
+from datetime import datetime, timedelta
+import pytz
 
-load_dotenv()
+MAX_TOKENS_HISTORY = 1000
 
-EVOLUTION_API_URL = os.getenv("EVOLUTION_API_URL")
-EVOLUTION_API_TOKEN = os.getenv("EVOLUTION_API_TOKEN")
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# Controle simples para evitar criar eventos duplicados
+last_event_created = {
+    "summary": None,
+    "start": None,
+    "timestamp": None
+}
 
-allowed_numbers = os.getenv("ALLOWED_NUMBERS", "").split(",")
-
-pending_force_confirmation = {}
-
-def send_whatsapp_message(number, message):
-    try:
-        payload = {
-            "number": number,
-            "message": message
-        }
-        headers = {
-            "Authorization": f"Bearer {EVOLUTION_API_TOKEN}",
-            "Content-Type": "application/json"
-        }
-        response = requests.post(EVOLUTION_API_URL, headers=headers, data=json.dumps(payload))
-        print(f"Tentando enviar para: {EVOLUTION_API_URL}")
-        print(f"Mensagem enviada com sucesso para {number}. Status: {response.status_code}")
-    except Exception as e:
-        print(f"[ERRO send_whatsapp_message] {e}")
-
-def save_message(sender_number, message, direction="incoming"):
-    print(f"Mensagem {direction} de/para {sender_number} salva no banco de dados.")
-
-@app.route("/webhook", methods=["POST"])
-def webhook():
-    data = request.json
-    sender_number = data.get("number")
-    message_text = data.get("message")
-
-    print(f"--- Webhook Recebido ---")
-    print(f"Remetente: {sender_number}")
-    print(f"Mensagem: {message_text}")
-
-    save_message(sender_number, message_text, direction="incoming")
-
-    if sender_number not in allowed_numbers:
-        print(f"Acesso negado para {sender_number}.")
-        return "OK", 200
-
-    print(f"Acesso permitido para: {sender_number}. Processando...")
-
-    if sender_number in pending_force_confirmation:
-        if message_text.strip().lower() in ["sim", "s"]:
-            print(f"Usuário confirmou criação forçada para {sender_number}")
-            pending_action = pending_force_confirmation.pop(sender_number)
-
-            try:
-                service = get_calendar_service()
-                calendar_action_response = create_calendar_event(service, pending_action["parameters"], force=True)
-                ai_response = calendar_action_response["message"]
-            except Exception as e:
-                ai_response = f"Erro ao criar evento forçado: {e}"
-
-        elif message_text.strip().lower() in ["não", "nao", "n"]:
-            print(f"Usuário cancelou criação forçada para {sender_number}")
-            pending_force_confirmation.pop(sender_number)
-            ai_response = "Entendido. Por favor, informe um novo horário para o evento."
-
-        else:
-            ai_response = "Por favor, responda com 'sim' para confirmar ou 'não' para escolher outro horário."
-
-        print(f"Enviando resposta para {sender_number}: {ai_response}")
-        send_whatsapp_message(sender_number, ai_response)
-        save_message(sender_number, ai_response, direction="outgoing")
-        return "OK", 200
-
+def handle_incoming_message(sender_number: str, message_text: str):
     print(f"Processando mensagem de {sender_number}: {message_text}")
 
-    messages = [
-        {"role": "system", "content": "Você é uma assistente pessoal que organiza compromissos no Google Calendar."},
-        {"role": "user", "content": message_text}
-    ]
+    user_designation = "Meu Mestre" if sender_number == ALLOWED_PHONE_NUMBER.lstrip("+") else "o usuário"
+    history = get_conversation_history(sender_number, limit=20)
 
-    response = openai.ChatCompletion.create(
-        model="gpt-4o",
-        messages=messages,
-        temperature=0
-    )
+    encoding = tiktoken.encoding_for_model("gpt-4o-mini")
+    current_history_tokens = 0
+    context_messages = []
 
-    assistant_message = response.choices[0].message["content"]
-    print(f"Resposta do GPT: {assistant_message}")
+    for msg_text, msg_direction in reversed(history):
+        role = "user" if msg_direction == "incoming" else "assistant"
+        message_tokens = len(encoding.encode(msg_text))
 
-    action_match = re.search(r"### Action: (.+)", assistant_message)
-    parameters_match = re.search(r"### Parameters:\n(.+)", assistant_message, re.DOTALL)
+        if current_history_tokens + message_tokens > MAX_TOKENS_HISTORY:
+            break
 
-    service = get_calendar_service()
-    ai_response = assistant_message  # fallback
+        context_messages.insert(0, {"role": role, "content": msg_text})
+        current_history_tokens += message_tokens
 
-    if action_match and parameters_match:
-        action = action_match.group(1).strip()
-        parameters_str = parameters_match.group(1).strip()
+    brazil_timezone = pytz.timezone("America/Sao_Paulo")
+    now_brazil = datetime.now(brazil_timezone)
+    current_date = now_brazil.strftime("%Y-%m-%d")
+    current_time = now_brazil.strftime("%H:%M")
+    tomorrow_date = (now_brazil + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    messages_for_ai = []
+    messages_for_ai.append({"role": "system", "content": f"""
+<instrucoes>
+A seguir você encontrará todas as instruções necessárias para realizar seu trabalho como uma secretária virtual. Siga à risca as instruções.
+
+<objetivo>
+Atender às solicitações do usuário de forma prestativa, eficiente e natural, mantendo o contexto da conversa. Você também é capaz de interagir com o Google Calendar para gerenciar eventos.
+
+<persona>
+Você é uma secretária virtual prestativa, eficiente e profissional. Seu objetivo principal é auxiliar o usuário em suas tarefas e responder às suas perguntas de forma clara e concisa. Você deve ser educada e sempre manter um tom de voz adequado.
+
+<regras_de_interacao>
+1. **Saudação ao Usuário Autorizado:** Sempre se refira ao usuário autorizado (identificado como "Meu Mestre") como "Meu Mestre" em suas respostas.
+2. **Memória de Conversa:** Utilize o histórico de conversas fornecido para manter o contexto e fornecer respostas mais relevantes.
+3. **Respostas Claras e Concisas:** Forneça informações diretas e evite divagações.
+4. **Interação com Google Calendar:** Se a solicitação do usuário for relacionada a eventos no Google Calendar (criar, listar, atualizar, excluir, verificar disponibilidade), você DEVE responder SOMENTE com um objeto JSON no seguinte formato:
+
+{{
+  "action": "<nome_da_acao>",
+  "parameters": {{
+    <parametros_da_acao>
+  }}
+}}
+
+IMPORTANTE: NÃO escreva nenhum texto antes ou depois do JSON. A resposta deve começar com o caractere {{ e ser um JSON válido.
+
+As ações possíveis são: create_event, list_events, update_event, delete_event, check_availability.
+
+- Datas: Use sempre o formato YYYY-MM-DD. "Hoje" corresponde a {current_date}, "amanhã" a {tomorrow_date}.
+- Horários: Use sempre o formato HH:MM (24 horas), considerando o fuso horário do Brasil (America/Sao_Paulo).
+
+5. **Limitações:** Se não souber como responder a uma solicitação ou se ela estiver fora de suas capacidades, informe o usuário educadamente.
+6. **Tom de Voz:** Mantenha um tom profissional e prestativo.
+</regras_de_interacao>
+
+<informacoes_de_contexto>
+Data atual (Brasil): {current_date}
+Hora atual (Brasil): {current_time}
+Data de amanhã (Brasil): {tomorrow_date}
+</informacoes_de_contexto>
+"""})
+
+    messages_for_ai.extend(context_messages)
+    messages_for_ai.append({"role": "user", "content": f"{user_designation} disse: {message_text}"})
+
+    ai_response = get_ai_response(messages_for_ai)
+
+    calendar_action_response = None
+    ai_response_clean = re.sub(r"```json|```", "", ai_response).strip()
+
+    try:
+        ai_response_json = json.loads(ai_response_clean)
+        action = ai_response_json.get("action")
+        parameters = ai_response_json.get("parameters", {})
 
         try:
-            parameters = json.loads(parameters_str)
-        except json.JSONDecodeError as e:
-            ai_response = f"Erro ao interpretar os parâmetros da ação: {e}"
-            print(ai_response)
-            send_whatsapp_message(sender_number, ai_response)
-            save_message(sender_number, ai_response, direction="outgoing")
-            return "OK", 200
+            service = get_calendar_service()
+            if not service:
+                ai_response = "Desculpe, não consegui conectar ao Google Calendar no momento."
+            else:
+                if action == "create_event":
+                    global last_event_created
+                    current_time_check = datetime.now()
 
-        if action == "create_event":
-            calendar_action_response = create_calendar_event(service, parameters)
+                    is_duplicate = (
+                        last_event_created["summary"] == parameters.get("summary") and
+                        last_event_created["start"] == parameters.get("start_datetime") and
+                        last_event_created["timestamp"] is not None and
+                        (current_time_check - last_event_created["timestamp"]).total_seconds() < 60
+                    )
 
-            if calendar_action_response["status"] == "conflict":
-                pending_force_confirmation[sender_number] = calendar_action_response["pending_action"]
+                    if is_duplicate:
+                        ai_response = "Evento já foi criado recentemente. Evitando duplicação."
+                    else:
+                        calendar_action_response = create_calendar_event(service, parameters)
+                        last_event_created = {
+                            "summary": parameters.get("summary"),
+                            "start": parameters.get("start_datetime"),
+                            "timestamp": datetime.now()
+                        }
 
-            ai_response = calendar_action_response["message"]
+                elif action == "list_events":
+                    calendar_action_response = list_calendar_events(service, parameters.get("time_min"), parameters.get("time_max"))
+                elif action == "update_event":
+                    calendar_action_response = update_calendar_event(service, parameters.get("event_id"), parameters.get("updated_event_data"))
+                elif action == "delete_event":
+                    calendar_action_response = delete_calendar_event(service, parameters.get("event_id"))
+                elif action == "check_availability":
+                    calendar_action_response = check_calendar_availability(service, parameters.get("time_min"), parameters.get("time_max"))
+        except Exception as e:
+            print(f"[ERRO Google Calendar] {e}")
+            ai_response = f"Erro ao acessar Google Calendar: {e}"
 
-        elif action == "list_events":
-            time_min = parameters.get("time_min")
-            time_max = parameters.get("time_max")
-            calendar_action_response = list_calendar_events(service, time_min, time_max)
-            ai_response = calendar_action_response["message"]
+    except json.JSONDecodeError:
+        pass
+
+    if calendar_action_response:
+        # Passa direto a resposta pronta do módulo Google Calendar
+        ai_response = calendar_action_response.get("message", ai_response)
+
+    if not ai_response:
+        ai_response = "Desculpe, não consegui processar sua solicitação no momento. Pode tentar reformular?"
 
     print(f"Enviando resposta para {sender_number}: {ai_response}")
     send_whatsapp_message(sender_number, ai_response)
-    save_message(sender_number, ai_response, direction="outgoing")
 
-    return "OK", 200
+    save_message(sender_number, ai_response, direction="outgoing")
