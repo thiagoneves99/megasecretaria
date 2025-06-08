@@ -14,11 +14,10 @@ import pytz
 
 MAX_TOKENS_HISTORY = 1000
 
-# Memória temporária para tratar conflitos
-pending_calendar_conflict = {}
+# Controle de contexto para confirmação de conflito por número
+pending_force_confirmation = {}
 
 def handle_incoming_message(sender_number: str, message_text: str):
-    global pending_calendar_conflict
     print(f"Processando mensagem de {sender_number}: {message_text}")
 
     user_designation = "Meu Mestre" if sender_number == ALLOWED_PHONE_NUMBER.lstrip("+") else "o usuário"
@@ -89,28 +88,48 @@ Data de amanhã (Brasil): {tomorrow_date}
     messages_for_ai.extend(context_messages)
     messages_for_ai.append({"role": "user", "content": f"{user_designation} disse: {message_text}"})
 
-    ai_response = get_ai_response(messages_for_ai)
-
+    service = get_calendar_service()
+    ai_response = ""
     calendar_action_response = None
-    ai_response_clean = re.sub(r"```json|```", "", ai_response).strip()
+    force_request = False
 
-    try:
-        ai_response_json = json.loads(ai_response_clean)
-        action = ai_response_json.get("action")
-        parameters = ai_response_json.get("parameters", {})
+    # Verifica se usuário está respondendo a um pending_force_confirmation
+    if sender_number in pending_force_confirmation:
+        if message_text.strip().lower() in ["sim", "s"]:
+            print(f"Usuário confirmou criação forçada para {sender_number}")
+            # Pega os parâmetros antigos
+            parameters = pending_force_confirmation[sender_number]
+            parameters["force"] = True
+            try:
+                calendar_action_response = create_calendar_event(service, parameters)
+            except Exception as e:
+                print(f"[ERRO Google Calendar FORCED] {e}")
+                ai_response = f"Erro ao tentar criar evento forçado: {e}"
+            finally:
+                del pending_force_confirmation[sender_number]
+        elif message_text.strip().lower() in ["não", "nao", "n"]:
+            print(f"Usuário recusou criação forçada para {sender_number}")
+            ai_response = "Ok, não vou criar o evento. Por favor, informe um novo horário."
+            del pending_force_confirmation[sender_number]
+        else:
+            ai_response = "Não entendi. Deseja marcar o evento mesmo assim? Responda com 'sim' ou 'não'."
+    else:
+        ai_response_raw = get_ai_response(messages_for_ai)
+        ai_response_clean = re.sub(r"```json|```", "", ai_response_raw).strip()
 
         try:
-            service = get_calendar_service()
+            ai_response_json = json.loads(ai_response_clean)
+            action = ai_response_json.get("action")
+            parameters = ai_response_json.get("parameters", {})
+
             if not service:
                 ai_response = "Desculpe, não consegui conectar ao Google Calendar no momento."
             else:
                 if action == "create_event":
-                    if pending_calendar_conflict.get(sender_number) == "awaiting_force_create":
-                        parameters["force_create"] = True
-                        pending_calendar_conflict.pop(sender_number, None)
-
                     calendar_action_response = create_calendar_event(service, parameters)
-
+                    if calendar_action_response.get("status") == "conflict":
+                        # Guarda no pending_force_confirmation
+                        pending_force_confirmation[sender_number] = parameters
                 elif action == "list_events":
                     calendar_action_response = list_calendar_events(service, parameters.get("time_min"), parameters.get("time_max"))
                 elif action == "update_event":
@@ -121,39 +140,13 @@ Data de amanhã (Brasil): {tomorrow_date}
                     calendar_action_response = check_calendar_availability(service, parameters.get("time_min"), parameters.get("time_max"))
                 else:
                     pass
-        except Exception as e:
-            print(f"[ERRO Google Calendar] {e}")
-            ai_response = f"Erro ao acessar Google Calendar: {e}"
 
-    except json.JSONDecodeError:
-        pass
+        except json.JSONDecodeError:
+            pass
 
-    # Processa resposta do calendário
+    # Decide o que enviar como resposta final
     if calendar_action_response:
-        status = calendar_action_response.get("status")
-        if status == "success":
-            ai_response = calendar_action_response.get("message", "")
-        elif status == "conflict":
-            pending_calendar_conflict[sender_number] = "awaiting_force_create"
-            conflict_event = calendar_action_response.get("conflict_event", {})
-            ai_response = (
-                f"{calendar_action_response.get('message')}\n\n"
-                f"Evento em conflito:\n"
-                f"- {conflict_event.get('summary')}\n"
-                f"- Início: {conflict_event.get('start')}\n"
-                f"- Fim: {conflict_event.get('end')}\n\n"
-                "Deseja marcar mesmo assim? Responda 'sim' ou 'não'."
-            )
-        else:
-            ai_response = f"Erro na operação de calendário: {calendar_action_response.get('message', '')}"
-
-    # Se estamos aguardando resposta sobre conflito
-    elif pending_calendar_conflict.get(sender_number) == "awaiting_force_create":
-        if message_text.lower() in ["sim", "sim quero", "quero marcar"]:
-            ai_response = "Certo! Vou marcar o evento mesmo assim. Por favor, repita o pedido para confirmar."
-        else:
-            ai_response = "Ok, não irei marcar. Por favor, me diga um novo horário que deseja agendar."
-            pending_calendar_conflict.pop(sender_number, None)
+        ai_response = calendar_action_response.get("message", "")
 
     if not ai_response:
         ai_response = "Desculpe, não consegui processar sua solicitação no momento. Pode tentar reformular?"
