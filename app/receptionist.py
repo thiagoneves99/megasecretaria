@@ -209,9 +209,22 @@ def _process_ai_response(messages_for_ai, sender_number):
                     if not isinstance(ev, dict):
                         print(f"Aviso: Item inesperado na lista de conflitos: {ev}. Pulando.")
                         continue
-                    start_str = datetime.fromisoformat(ev["start"]).strftime("%d/%m/%Y %H:%M")
-                    end_str = datetime.fromisoformat(ev["end"]).strftime("%d/%m/%Y %H:%M")
-                    msg += f"- {ev["summary"]} das {start_str} até {end_str}\n"
+                    
+                    # Extrai as strings de data/hora dos dicionários aninhados
+                    start_datetime_str = ev["start"].get("dateTime", ev["start"].get("date"))
+                    end_datetime_str = ev["end"].get("dateTime", ev["end"].get("date"))
+                    
+                    if not isinstance(start_datetime_str, str) or not isinstance(end_datetime_str, str):
+                        print(f"Aviso: Data/hora inválida para evento: {ev}. Pulando.")
+                        continue
+
+                    try:
+                        start_str = datetime.fromisoformat(start_datetime_str).strftime("%d/%m/%Y %H:%M")
+                        end_str = datetime.fromisoformat(end_datetime_str).strftime("%d/%m/%Y %H:%M")
+                        msg += f"- {ev['summary']} das {start_str} até {end_str}\n"
+                    except ValueError as ve:
+                        print(f"Erro ao formatar data/hora para evento {ev.get("summary", "Sem título")}: {ve}. Pulando este evento.")
+                        continue
                 msg += "\nDeseja marcar este novo evento mesmo assim? (Responda com 'sim' para confirmar ou 'não' para escolher outro horário)."
 
                 return msg, None
