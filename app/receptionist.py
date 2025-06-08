@@ -228,4 +228,8 @@ Data de amanhã (Brasil): {tomorrow_date}
     if not ai_response:
         ai_response = "Desculpe, não consegui processar sua solicitação no momento. Pode tentar reformular?"
 
-    print(f"Enviando resposta para {sender_number}: {ai
+    print(f"Enviando resposta para {sender_number}: {ai_response}")
+
+    send_whatsapp_message(sender_number, ai_response)
+    save_message(sender_number, ai_response, direction="outgoing")
+
