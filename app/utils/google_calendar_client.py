@@ -1,6 +1,7 @@
 import os
 import pickle
 import pytz
+import dateutil.parser
 from datetime import datetime, timedelta
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -33,6 +34,17 @@ def get_calendar_service():
         print(f"[ERRO get_calendar_service] {e}")
         return None
 
+def ensure_datetime_with_timezone(dt_str, timezone="America/Sao_Paulo"):
+    try:
+        dt = dateutil.parser.isoparse(dt_str)
+        if dt.tzinfo is None:
+            tz = pytz.timezone(timezone)
+            dt = tz.localize(dt)
+        return dt.isoformat()
+    except Exception as e:
+        print(f"[ERRO ensure_datetime_with_timezone] {e}")
+        return dt_str
+
 def format_datetime(datetime_str):
     try:
         dt = datetime.fromisoformat(datetime_str.replace("Z", "+00:00"))
@@ -52,7 +64,9 @@ def create_calendar_event(service, parameters, force=False):
         if not summary or not start_datetime:
             return {"status": "error", "message": "Parâmetros summary e start_datetime são obrigatórios"}
 
-        # Verificar conflito se não for forçado
+        start_datetime = ensure_datetime_with_timezone(start_datetime, timezone)
+        end_datetime = ensure_datetime_with_timezone(end_datetime, timezone)
+
         if not force:
             conflicting_events = []
             events_result = service.events().list(
@@ -88,7 +102,6 @@ def create_calendar_event(service, parameters, force=False):
                     }
                 }
 
-        # Criar evento
         event = {
             "summary": summary,
             "start": {
@@ -119,6 +132,9 @@ def create_calendar_event(service, parameters, force=False):
 
 def list_calendar_events(service, time_min, time_max):
     try:
+        time_min = ensure_datetime_with_timezone(time_min)
+        time_max = ensure_datetime_with_timezone(time_max)
+
         events_result = service.events().list(
             calendarId='primary',
             timeMin=time_min,
@@ -168,6 +184,9 @@ def delete_calendar_event(service, event_id):
 
 def check_calendar_availability(service, time_min, time_max):
     try:
+        time_min = ensure_datetime_with_timezone(time_min)
+        time_max = ensure_datetime_with_timezone(time_max)
+
         events_result = service.events().list(
             calendarId='primary',
             timeMin=time_min,
