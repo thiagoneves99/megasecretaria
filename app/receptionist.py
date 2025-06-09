@@ -245,7 +245,7 @@ def _process_ai_response(messages_for_ai, sender_number, current_date, current_t
                     try:
                         start_str = datetime.fromisoformat(start_datetime_str).strftime("%d/%m/%Y %H:%M")
                         end_str = datetime.fromisoformat(end_datetime_str).strftime("%d/%m/%Y %H:%M")
-                        msg += f"- {ev[\"summary\"]} das {start_str} até {end_str}\n"
+                        msg += f"- {ev['summary']} das {start_str} até {end_str}\n"
                     except ValueError as ve:
                         print(f"Erro ao formatar data/hora para evento {ev.get(\'summary\', \'Sem título\')}: {ve}. Pulando este evento.")
                         continue
