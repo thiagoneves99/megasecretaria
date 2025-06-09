@@ -143,22 +143,22 @@ Para 'delete_event' e 'update_event', o 'event_id' é um parâmetro obrigatório
 Exemplo para deletar um evento:
 {{
   "action": "delete_event",
-  "parameters": {
+  "parameters": {{
     "event_id": "o_id_do_evento_a_ser_deletado"
-  }
+  }}
 }}
 
 Exemplo para atualizar um evento:
 {{
   "action": "update_event",
-  "parameters": {
+  "parameters": {{
     "event_id": "o_id_do_evento_a_ser_atualizado",
-    "updates": {
+    "updates": {{
       "summary": "Novo Título do Evento",
       "start_datetime": "YYYY-MM-DD HH:MM",
       "end_datetime": "YYYY-MM-DD HH:MM"
-    }
-  }
+    }}
+  }}
 }}
 
 5. **Limitações:** Se não souber como responder a uma solicitação ou se ela estiver fora de suas capacidades, informe o usuário educadamente.
