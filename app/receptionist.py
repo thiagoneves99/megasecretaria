@@ -84,7 +84,7 @@ def _handle_confirmation_response(sender_number, text_lower):
         response = "Ok, então escolha outro horário para o evento."
         conversation_state.pop(sender_number, None)
     else:
-        response = "Por favor, responda com 'sim' para confirmar ou 'não' para escolher outro horário."
+        response = "Por favor, responda com \'sim\' para confirmar ou \'não\' para escolher outro horário."
 
     send_whatsapp_message(sender_number, response)
     save_message(sender_number, response, direction="outgoing")
@@ -138,7 +138,7 @@ As ações possíveis são: create_event, list_events, update_event, delete_even
 - Datas: Use sempre o formato YYYY-MM-DD. "Hoje" corresponde a {current_date}, "amanhã" a {tomorrow_date}.
 - Horários: Use sempre o formato HH:MM (24 horas), considerando o fuso horário do Brasil (America/Sao_Paulo).
 
-Para 'delete_event' e 'update_event', o 'event_id' é um parâmetro obrigatório. O 'event_id' deve ser obtido de uma listagem prévia de eventos ou fornecido explicitamente pelo usuário.
+Para \'delete_event\' e \'update_event\', o \'event_id\' é um parâmetro obrigatório. O \'event_id\' deve ser obtido de uma listagem prévia de eventos ou fornecido explicitamente pelo usuário.
 
 Exemplo para deletar um evento:
 {{
@@ -244,10 +244,12 @@ def _process_ai_response(messages_for_ai, sender_number, current_date, current_t
 
                     try:
                         start_str = datetime.fromisoformat(start_datetime_str).strftime("%d/%m/%Y %H:%M")
-                        end_str = datetime.fromisoformat(end_datetime_str).strftime("%d/%m/%Y %H:%M")                         msg += f'- {ev[\'summary\']} das {start_str} até {end_str}\n''                    except ValueError as ve:
-                        print(f"Erro ao formatar data/hora para evento {ev.get('summary', 'Sem título')}: {ve}. Pulando este evento.")
+                        end_str = datetime.fromisoformat(end_datetime_str).strftime("%d/%m/%Y %H:%M")
+                        msg += f"- {ev[\"summary\"]} das {start_str} até {end_str}\n"
+                    except ValueError as ve:
+                        print(f"Erro ao formatar data/hora para evento {ev.get(\'summary\', \'Sem título\')}: {ve}. Pulando este evento.")
                         continue
-                msg += "\nDeseja marcar este novo evento mesmo assim? (Responda com 'sim' para confirmar ou 'não' para escolher outro horário)."
+                msg += "\nDeseja marcar este novo evento mesmo assim? (Responda com \'sim\' para confirmar ou \'não\' para escolher outro horário)."
 
                 return msg, None
             else:
@@ -278,7 +280,7 @@ def _process_ai_response(messages_for_ai, sender_number, current_date, current_t
             for ev in events:
                 start_str = datetime.fromisoformat(ev["start"].get("dateTime", ev["start"].get("date"))).strftime("%d/%m/%Y %H:%M")
                 end_str = datetime.fromisoformat(ev["end"].get("dateTime", ev["end"].get("date"))).strftime("%d/%m/%Y %H:%M")
-                msg += f"- {ev['summary']} de {start_str} até {end_str}\n"
+                msg += f"- {ev[\"summary\"]} de {start_str} até {end_str}\n"
             return msg, None
 
         elif action == "update_event":
