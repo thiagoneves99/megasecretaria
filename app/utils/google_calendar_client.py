@@ -7,9 +7,9 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
-SCOPES = ['https://www.googleapis.com/auth/calendar']
+SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
-def get_calendar_service():
+def get_calendar_service( ):
     try:
         token_path = os.getenv("GOOGLE_TOKEN_PATH")
         if not token_path:
@@ -17,25 +17,23 @@ def get_calendar_service():
 
         creds = None
         if os.path.exists(token_path):
-            with open(token_path, 'rb') as token:
+            with open(token_path, "rb") as token:
                 creds = pickle.load(token)
 
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
                 creds.refresh(Request())
-                with open(token_path, 'wb') as token:
+                with open(token_path, "wb") as token:
                     pickle.dump(creds, token)
             else:
                 # Não tenta criar novas credenciais, só dá erro
                 raise ValueError("Credenciais inválidas ou token expirado.")
 
-        service = build('calendar', 'v3', credentials=creds)
+        service = build("calendar", "v3", credentials=creds)
         return service
     except Exception as e:
         print(f"[ERRO get_calendar_service] {e}")
         return None
-
-# --- O resto do arquivo permanece exatamente igual ---
 
 def ensure_datetime_with_timezone(dt_str, timezone="America/Sao_Paulo"):
     try:
@@ -57,7 +55,7 @@ def format_datetime(datetime_str):
         print(f"[ERRO format_datetime] {e}")
         return datetime_str
 
-def create_calendar_event(service, parameters, force=False):
+def create_calendar_event(service, parameters):
     try:
         summary = parameters.get("summary")
         start_datetime = parameters.get("start_datetime")
@@ -69,41 +67,6 @@ def create_calendar_event(service, parameters, force=False):
 
         start_datetime = ensure_datetime_with_timezone(start_datetime, timezone)
         end_datetime = ensure_datetime_with_timezone(end_datetime, timezone)
-
-        if not force:
-            conflicting_events = []
-            events_result = service.events().list(
-                calendarId='primary',
-                timeMin=start_datetime,
-                timeMax=end_datetime,
-                singleEvents=True,
-                orderBy='startTime'
-            ).execute()
-
-            for event in events_result.get('items', []):
-                existing_summary = event.get('summary', 'Sem título')
-                existing_start = event['start'].get('dateTime', event['start'].get('date'))
-                existing_end = event['end'].get('dateTime', event['end'].get('date'))
-                conflicting_events.append({
-                    "summary": existing_summary,
-                    "start": existing_start,
-                    "end": existing_end
-                })
-
-            if conflicting_events:
-                conflict_message = "⚠️ Já existe evento(s) neste horário:\n\n"
-                for event in conflicting_events:
-                    conflict_message += f"- {event['summary']} das {format_datetime(event['start'])} até {format_datetime(event['end'])}\n"
-                conflict_message += "\nDeseja marcar este novo evento mesmo assim? (Responda com 'sim' para confirmar ou 'não' para escolher outro horário)."
-
-                return {
-                    "status": "conflict",
-                    "message": conflict_message,
-                    "pending_action": {
-                        "action": "create_event",
-                        "parameters": parameters
-                    }
-                }
 
         event = {
             "summary": summary,
@@ -117,7 +80,7 @@ def create_calendar_event(service, parameters, force=False):
             },
         }
 
-        created_event = service.events().insert(calendarId='primary', body=event).execute()
+        created_event = service.events().insert(calendarId="primary", body=event).execute()
 
         return {
             "status": "success",
@@ -139,14 +102,14 @@ def list_calendar_events(service, time_min, time_max):
         time_max = ensure_datetime_with_timezone(time_max)
 
         events_result = service.events().list(
-            calendarId='primary',
+            calendarId="primary",
             timeMin=time_min,
             timeMax=time_max,
             singleEvents=True,
-            orderBy='startTime'
+            orderBy="startTime"
         ).execute()
 
-        events = events_result.get('items', [])
+        events = events_result.get("items", [])
         if not events:
             return []
 
@@ -158,11 +121,11 @@ def list_calendar_events(service, time_min, time_max):
 
 def update_calendar_event(service, event_id, updated_event_data):
     try:
-        event = service.events().get(calendarId='primary', eventId=event_id).execute()
+        event = service.events().get(calendarId="primary", eventId=event_id).execute()
 
         event.update(updated_event_data)
 
-        updated_event = service.events().update(calendarId='primary', eventId=event_id, body=event).execute()
+        updated_event = service.events().update(calendarId="primary", eventId=event_id, body=event).execute()
 
         return {"status": "success", "message": f"Evento atualizado com sucesso."}
 
@@ -172,7 +135,7 @@ def update_calendar_event(service, event_id, updated_event_data):
 
 def delete_calendar_event(service, event_id):
     try:
-        service.events().delete(calendarId='primary', eventId=event_id).execute()
+        service.events().delete(calendarId="primary", eventId=event_id).execute()
         return {"status": "success", "message": "Evento deletado com sucesso."}
 
     except Exception as e:
@@ -185,17 +148,18 @@ def check_calendar_availability(service, time_min, time_max):
         time_max = ensure_datetime_with_timezone(time_max)
 
         events_result = service.events().list(
-            calendarId='primary',
+            calendarId="primary",
             timeMin=time_min,
             timeMax=time_max,
             singleEvents=True,
-            orderBy='startTime'
+            orderBy="startTime"
         ).execute()
 
-        events = events_result.get('items', [])
+        events = events_result.get("items", [])
         cleaned_events = [event for event in events if isinstance(event, dict)]
         return cleaned_events
 
     except Exception as e:
         print(f"[ERRO check_calendar_availability] {e}")
         return []
+

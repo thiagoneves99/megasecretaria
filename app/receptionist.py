@@ -1,10 +1,6 @@
 from .utils.ai_client import get_ai_response
 from .utils.whatsapp_client import send_whatsapp_message
 from .utils.db_handler import save_message, get_conversation_history
-from .utils.google_calendar_client import (
-    get_calendar_service, create_calendar_event, list_calendar_events,
-    update_calendar_event, delete_calendar_event, check_calendar_availability
-)
 from config.settings import ALLOWED_PHONE_NUMBER
 import tiktoken
 import json
@@ -12,20 +8,16 @@ import re
 from datetime import datetime, timedelta
 import pytz
 
-MAX_TOKENS_HISTORY = 1000
+# Importar o novo módulo que irá lidar com as ações do calendário
+from .utils.calendar_manager import handle_calendar_action
 
-# Controle para evitar criar eventos duplicados repetidamente
-last_event_created = {
-    "summary": None,
-    "start": None,
-    "timestamp": None
-}
+MAX_TOKENS_HISTORY = 1000
 
 # Estado da conversa para cada usuário (em memória)
 conversation_state = {}
 
 def handle_incoming_message(sender_number: str, message_text: str):
-    global last_event_created, conversation_state
+    global conversation_state
 
     print(f"Processando mensagem de {sender_number}: {message_text}")
 
@@ -36,8 +28,12 @@ def handle_incoming_message(sender_number: str, message_text: str):
 
     # 1) Verifica se está aguardando confirmação para criar evento com conflito
     if sender_number in conversation_state and conversation_state[sender_number].get("awaiting_confirmation"):
-        resposta = _handle_confirmation_response(sender_number, text_lower)
-        return resposta
+        # Delega a resposta de confirmação para o calendar_manager
+        resposta = handle_calendar_action(sender_number, text_lower, conversation_state)
+        if resposta:
+            send_whatsapp_message(sender_number, resposta)
+            save_message(sender_number, resposta, direction="outgoing")
+            return
 
     # 2) Prepara histórico para contexto da IA
     context_messages = _build_context_messages(history)
@@ -53,12 +49,28 @@ def handle_incoming_message(sender_number: str, message_text: str):
     messages_for_ai = _compose_ai_prompt(context_messages, user_designation, message_text, current_date, current_time, tomorrow_date)
 
     # 5) Chama IA e processa resposta
-    ai_response, calendar_action_response = _process_ai_response(messages_for_ai, sender_number, current_date, current_time)
+    ai_response = get_ai_response(messages_for_ai)
 
-    # 6) Resposta final, envio e salvamento
-    if calendar_action_response:
-        ai_response = calendar_action_response.get("message", ai_response)
+    # 6) Tenta processar a resposta da IA como uma ação de calendário
+    calendar_action_response = None
+    ai_response_clean = re.sub(r"```json|```", "", ai_response).strip()
+    try:
+        ai_json = json.loads(ai_response_clean)
+        if isinstance(ai_json, dict) and "action" in ai_json and "parameters" in ai_json:
+            # Delega a ação do calendário para o calendar_manager
+            calendar_action_response = handle_calendar_action(sender_number, ai_json, conversation_state)
+            if calendar_action_response:
+                ai_response = calendar_action_response
 
+    except json.JSONDecodeError:
+        # Não é um JSON, continua com a resposta da IA como texto normal
+        pass
+    except Exception as e:
+        print(f"Erro ao processar JSON da IA ou ação de calendário: {e}")
+        # Se houver erro no JSON ou na ação, ainda tenta usar a resposta original da IA
+        pass
+
+    # 7) Resposta final, envio e salvamento
     if not ai_response:
         ai_response = "Desculpe, não consegui processar sua solicitação no momento. Pode tentar reformular?"
 
@@ -66,29 +78,6 @@ def handle_incoming_message(sender_number: str, message_text: str):
 
     send_whatsapp_message(sender_number, ai_response)
     save_message(sender_number, ai_response, direction="outgoing")
-
-
-def _handle_confirmation_response(sender_number, text_lower):
-    state = conversation_state.get(sender_number)
-    if text_lower == "sim":
-        params = state["pending_event_params"]
-        service = get_calendar_service()
-        if service:
-            calendar_resp = create_calendar_event(service, params, force=True)
-            if calendar_resp.get("status") == "success":
-                response = calendar_resp.get("message", "Evento criado conforme solicitado.")
-                conversation_state.pop(sender_number, None)
-            else:
-                response = calendar_resp.get("message", "Erro ao criar evento após confirmação. Por favor, tente novamente.")
-    elif text_lower in ["não", "nao"]:
-        response = "Ok, então escolha outro horário para o evento."
-        conversation_state.pop(sender_number, None)
-    else:
-        response = "Por favor, responda com \'sim\' para confirmar ou \'não\' para escolher outro horário."
-
-    send_whatsapp_message(sender_number, response)
-    save_message(sender_number, response, direction="outgoing")
-    return response
 
 
 def _build_context_messages(history):
@@ -177,142 +166,3 @@ Data de amanhã (Brasil): {tomorrow_date}
     return messages
 
 
-def _process_ai_response(messages_for_ai, sender_number, current_date, current_time):
-    ai_response = get_ai_response(messages_for_ai)
-    calendar_action_response = None
-
-    ai_response_clean = re.sub(r"```json|```", "", ai_response).strip()
-    try:
-        ai_json = json.loads(ai_response_clean)
-        if not isinstance(ai_json, dict):
-            raise json.JSONDecodeError("AI response is not a valid action JSON", ai_response_clean, 0)
-        action = ai_json.get("action")
-        parameters = ai_json.get("parameters", {})
-
-        # Ajusta datetime para ISO 8601 com timezone para create_event
-        if action == "create_event":
-            tz = pytz.timezone(parameters.get("timezone", "America/Sao_Paulo"))
-
-            def parse_dt(dt_str):
-                try:
-                    dt = datetime.fromisoformat(dt_str)
-                    if dt.tzinfo is None:
-                        dt = tz.localize(dt)
-                    else:
-                        dt = dt.astimezone(tz)
-                    return dt.isoformat()
-                except Exception:
-                    return dt_str
-
-            if "start_datetime" in parameters:
-                parameters["start_datetime"] = parse_dt(parameters["start_datetime"])
-            if "end_datetime" in parameters:
-                parameters["end_datetime"] = parse_dt(parameters["end_datetime"])
-
-        service = get_calendar_service()
-        if not service:
-            return "Desculpe, não consegui conectar ao Google Calendar no momento.", None
-
-        global last_event_created
-        now = datetime.now()
-
-        if action == "create_event":
-            if not parameters.get("summary") or not parameters.get("start_datetime") or not parameters.get("end_datetime"):
-                return "Parâmetros summary, start_datetime e end_datetime são obrigatórios para criar evento.", None
-
-            conflicts = check_calendar_availability(service, parameters["start_datetime"], parameters["end_datetime"])
-            if conflicts and len(conflicts) > 0:
-                # Guarda estado para confirmação
-                conversation_state[sender_number] = {
-                    "awaiting_confirmation": True,
-                    "pending_event_params": parameters
-                }
-
-                msg = "⚠️ Já existe evento(s) neste horário:\n\n"
-                for ev in conflicts:
-                    if not isinstance(ev, dict):
-                        print(f"Aviso: Item inesperado na lista de conflitos: {ev}. Pulando.")
-                        continue
-                    
-                    # Extrai as strings de data/hora dos dicionários aninhados
-                    start_datetime_str = ev["start"].get("dateTime", ev["start"].get("date"))
-                    end_datetime_str = ev["end"].get("dateTime", ev["end"].get("date"))
-                    
-                    if not isinstance(start_datetime_str, str) or not isinstance(end_datetime_str, str):
-                        print(f"Aviso: Data/hora inválida para evento: {ev}. Pulando.")
-                        continue
-
-                    try:
-                        start_str = datetime.fromisoformat(start_datetime_str).strftime("%d/%m/%Y %H:%M")
-                        end_str = datetime.fromisoformat(end_datetime_str).strftime("%d/%m/%Y %H:%M")
-                        msg += f"- {ev['summary']} das {start_str} até {end_str}\n"
-                    except ValueError as ve:
-                        print(f"Erro ao formatar data/hora para evento {ev.get('summary', 'Sem título')}: {ve}. Pulando este evento.")
-                        continue
-                msg += "\nDeseja marcar este novo evento mesmo assim? (Responda com \'sim\' para confirmar ou \'não\' para escolher outro horário)."
-
-                return msg, None
-            else:
-                # Evita duplicação recente
-                is_duplicate = (
-                    last_event_created["summary"] == parameters["summary"] and
-                    last_event_created["start"] == parameters["start_datetime"] and
-                    last_event_created["timestamp"] and (now - last_event_created["timestamp"]).total_seconds() < 180
-                )
-                if is_duplicate:
-                    return "Este evento já foi criado recentemente.", None
-
-                create_resp = create_calendar_event(service, parameters)
-                last_event_created = {
-                    "summary": parameters["summary"],
-                    "start": parameters["start_datetime"],
-                    "timestamp": now
-                }
-                return create_resp.get("message", "Evento criado com sucesso."), None
-
-        elif action == "list_events":
-            start = parameters.get("start_date", current_date)
-            end = parameters.get("end_date", current_date)
-            events = list_calendar_events(service, start, end)
-            if not events:
-                return "Nenhum evento encontrado no período solicitado.", None
-            msg = "Eventos:\n"
-            for ev in events:
-                start_str = datetime.fromisoformat(ev["start"].get("dateTime", ev["start"].get("date"))).strftime("%d/%m/%Y %H:%M")
-                end_str = datetime.fromisoformat(ev["end"].get("dateTime", ev["end"].get("date"))).strftime("%d/%m/%Y %H:%M")
-                msg += f"- {ev['summary']} das {start_str} até {end_str}\n"
-            return msg, None
-
-        elif action == "update_event":
-            event_id = parameters.get("event_id")
-            updates = parameters.get("updates", {})
-            if not event_id or not updates:
-                return "Parâmetros event_id e updates são obrigatórios para atualizar evento.", None
-            resp = update_calendar_event(service, event_id, updates)
-            return resp.get("message", "Evento atualizado."), None
-
-        elif action == "delete_event":
-            event_id = parameters.get("event_id")
-            if not event_id:
-                return "Parâmetro event_id é obrigatório para deletar evento.", None
-            resp = delete_calendar_event(service, event_id)
-            return resp.get("message", "Evento deletado."), None
-
-        elif action == "check_availability":
-            start = parameters.get("start_datetime")
-            end = parameters.get("end_datetime")
-            if not start or not end:
-                return "Parâmetros start_datetime e end_datetime são obrigatórios para checar disponibilidade.", None
-            conflicts = check_calendar_availability(service, start, end)
-            if conflicts and len(conflicts) > 0:
-                return "O horário está ocupado por outro evento.", None
-            else:
-                return "O horário está disponível.", None
-
-    except json.JSONDecodeError:
-        # Resposta normal (não JSON)
-        return ai_response, None
-
-    except Exception as e:
-        print(f"Erro ao processar resposta IA: {e}")
-        return "Erro interno ao processar a solicitação.", None
