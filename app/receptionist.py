@@ -280,7 +280,7 @@ def _process_ai_response(messages_for_ai, sender_number, current_date, current_t
             for ev in events:
                 start_str = datetime.fromisoformat(ev["start"].get("dateTime", ev["start"].get("date"))).strftime("%d/%m/%Y %H:%M")
                 end_str = datetime.fromisoformat(ev["end"].get("dateTime", ev["end"].get("date"))).strftime("%d/%m/%Y %H:%M")
-                msg += f"- {ev[\"summary\"]} de {start_str} até {end_str}\n"
+                msg += f"- {ev['summary']} das {start_str} até {end_str}\n"
             return msg, None
 
         elif action == "update_event":
