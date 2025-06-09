@@ -102,7 +102,7 @@ def handle_calendar_action(sender_number, ai_response_or_text_lower, conversatio
                     end_str = datetime.fromisoformat(end_datetime_str).strftime("%d/%m/%Y %H:%M")
                     msg += f"- {ev['summary']} das {start_str} até {end_str}\n"
                 except ValueError as ve:
-                    print(f"Erro ao formatar data/hora para evento {ev.get(\"summary\", \"Sem título\")}: {ve}. Pulando este evento.")
+                    print(f"Erro ao formatar data/hora para evento {ev.get('summary', 'Sem título')}: {ve}. Pulando este evento.")
                     continue
             msg += "\nDeseja marcar este novo evento mesmo assim? (Responda com \'sim\' para confirmar ou \'não\' para escolher outro horário)."
 
