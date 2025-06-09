@@ -100,7 +100,7 @@ def handle_calendar_action(sender_number, ai_response_or_text_lower, conversatio
                 try:
                     start_str = datetime.fromisoformat(start_datetime_str).strftime("%d/%m/%Y %H:%M")
                     end_str = datetime.fromisoformat(end_datetime_str).strftime("%d/%m/%Y %H:%M")
-                    msg += f"- {ev[\"summary\"]} das {start_str} até {end_str}\n"
+                    msg += f"- {ev['summary']} das {start_str} até {end_str}\n"
                 except ValueError as ve:
                     print(f"Erro ao formatar data/hora para evento {ev.get(\"summary\", \"Sem título\")}: {ve}. Pulando este evento.")
                     continue
@@ -149,7 +149,7 @@ def handle_calendar_action(sender_number, ai_response_or_text_lower, conversatio
         for ev in events:
             start_str = datetime.fromisoformat(ev["start"].get("dateTime", ev["start"].get("date"))).strftime("%d/%m/%Y %H:%M")
             end_str = datetime.fromisoformat(ev["end"].get("dateTime", ev["end"].get("date"))).strftime("%d/%m/%Y %H:%M")
-            msg += f"- {ev[\"summary\"]} das {start_str} até {end_str}\n"
+            msg += f"- {ev['summary']} das {start_str} até {end_str}\n"
         return msg
 
     elif action == "update_event":
