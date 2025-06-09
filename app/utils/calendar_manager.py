@@ -100,9 +100,9 @@ def handle_calendar_action(sender_number, ai_response_or_text_lower, conversatio
                 try:
                     start_str = datetime.fromisoformat(start_datetime_str).strftime("%d/%m/%Y %H:%M")
                     end_str = datetime.fromisoformat(end_datetime_str).strftime("%d/%m/%Y %H:%M")
-                    msg += f"- {ev['summary']} das {start_str} até {end_str}\n"
+                    msg += f"- {ev[\"summary\"]} das {start_str} até {end_str}\n"
                 except ValueError as ve:
-                    print(f"Erro ao formatar data/hora para evento {ev.get('summary', 'Sem título')}: {ve}. Pulando este evento.")
+                    print(f"Erro ao formatar data/hora para evento {ev.get(\"summary\", \"Sem título\")}: {ve}. Pulando este evento.")
                     continue
             msg += "\nDeseja marcar este novo evento mesmo assim? (Responda com \'sim\' para confirmar ou \'não\' para escolher outro horário)."
 
@@ -131,8 +131,17 @@ def handle_calendar_action(sender_number, ai_response_or_text_lower, conversatio
         now_brazil = datetime.now(brazil_tz)
         current_date = now_brazil.strftime("%Y-%m-%d")
 
-        start = parameters.get("start_date", current_date)
-        end = parameters.get("end_date", current_date)
+        start = parameters.get("start_date") # Pega start_date da IA, pode ser None
+        end = parameters.get("end_date", current_date) # end_date padrão para a data atual
+
+        # Se start_date não for fornecido pela IA, e end_date for a data atual,
+        # assume que o usuário quer eventos de um período passado razoável (ex: últimos 30 dias).
+        if not start and end == current_date:
+            past_date = now_brazil - timedelta(days=30) # Padrão para 30 dias atrás
+            start = past_date.strftime("%Y-%m-%d")
+        elif not start: # Se start_date não for fornecido, mas end_date não é a data atual (ex: end_date futura)
+            start = current_date # Padrão para a data atual
+
         events = list_calendar_events(service, start, end)
         if not events:
             return "Nenhum evento encontrado no período solicitado."
@@ -140,7 +149,7 @@ def handle_calendar_action(sender_number, ai_response_or_text_lower, conversatio
         for ev in events:
             start_str = datetime.fromisoformat(ev["start"].get("dateTime", ev["start"].get("date"))).strftime("%d/%m/%Y %H:%M")
             end_str = datetime.fromisoformat(ev["end"].get("dateTime", ev["end"].get("date"))).strftime("%d/%m/%Y %H:%M")
-            msg += f"- {ev['summary']} das {start_str} até {end_str}\n"
+            msg += f"- {ev[\"summary\"]} das {start_str} até {end_str}\n"
         return msg
 
     elif action == "update_event":
