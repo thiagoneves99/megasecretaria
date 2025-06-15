@@ -3,15 +3,14 @@
 import httpx
 from app.config import settings
 
-async def send_whatsapp_message(phone_number: str, message: str ):
+async def send_whatsapp_message(phone_number: str, message: str):
     """
     Envia uma mensagem de texto via Evolution API.
     """
-    # URL ajustada conforme sua sugestão. A API Key foi removida da URL.
     url = f"{settings.EVOLUTION_API_URL}/message/sendText/{settings.EVOLUTION_API_INSTANCE_NAME}"
     headers = {
         "Content-Type": "application/json",
-        "X-API-Key": settings.EVOLUTION_API_KEY # <--- Adicionar esta linha
+        "x-api-key": settings.EVOLUTION_API_KEY  # <--- ESTA LINHA PRECISA ESTAR AQUI!
     }
     payload = {
         "number": phone_number,
@@ -24,7 +23,7 @@ async def send_whatsapp_message(phone_number: str, message: str ):
     }
 
     try:
-        async with httpx.AsyncClient( ) as client:
+        async with httpx.AsyncClient() as client:
             response = await client.post(url, headers=headers, json=payload, timeout=30.0)
             response.raise_for_status()  # Levanta uma exceção para códigos de status HTTP 4xx/5xx
             print(f"Mensagem enviada com sucesso para {phone_number}: {response.json()}")
@@ -33,10 +32,9 @@ async def send_whatsapp_message(phone_number: str, message: str ):
         print(f"Erro ao enviar mensagem para {phone_number}: {exc}")
         return {"status": "error", "message": f"Erro de requisição: {exc}"}
     except httpx.HTTPStatusError as exc:
+        # Este bloco deve capturar o erro 401/403 se a API Key estiver errada
         print(f"Erro HTTP ao enviar mensagem para {phone_number}: {exc.response.status_code} - {exc.response.text}")
         return {"status": "error", "message": f"Erro HTTP: {exc.response.status_code} - {exc.response.text}"}
     except Exception as e:
         print(f"Erro inesperado ao enviar mensagem para {phone_number}: {e}")
         return {"status": "error", "message": f"Erro inesperado: {e}"}
-
-
