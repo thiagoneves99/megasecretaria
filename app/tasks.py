@@ -34,13 +34,14 @@ class MegaSecretaryTasks:
             "{user_message}"
 
             Se a mensagem for sobre criar, listar, consultar, *deletar* ou *gerenciar/alterar* eventos/compromissos/reuniões no calendário,
-            a intenção é 'gerenciamento de calendário'.
+            a intenção é **'gerenciamento de calendário'**.
             Se a mensagem não se encaixar claramente em gerenciamento de calendário,
-            a intenção é 'outra_requisição'.
+            a intenção é **'outra_requisição'**.
 
-            Sua saída deve ser uma string simples indicando a intenção.
+            Sua saída DEVE ser EXATAMENTE uma das duas strings fornecidas, sem espaços extras, capitalização diferente ou caracteres adicionais:
+            'gerenciamento de calendário' ou 'outra_requisição'.
             """,
-            expected_output="Uma string indicando a intenção ('gerenciamento de calendário' ou 'outra_requisição').",
+            expected_output="Uma string EXATA indicando a intenção ('gerenciamento de calendário' ou 'outra_requisição').",
             agent=self.agents.request_router_agent(),
             output_file='request_intent.txt'
         )

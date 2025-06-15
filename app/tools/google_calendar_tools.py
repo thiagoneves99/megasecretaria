@@ -1,9 +1,8 @@
 # mega_secretaria/app/tools/google_calendar_tools.py
 
 import os
-import datetime
 import pickle
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta # ATUALIZADO: Importar timedelta também
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -36,125 +35,150 @@ def get_google_calendar_service():
             with open(token_path, 'rb') as token:
                 creds = pickle.load(token)
         except Exception as e:
-            print(f"Erro ao carregar token.pickle: {e}. Tentando reautenticar.")
+            # Em caso de erro ao carregar o token, forçar reautenticação (ou assumir que o token será gerado externamente)
+            print(f"Erro ao carregar token.pickle: {e}. Será necessário um novo token.")
             creds = None
 
+    # Se não há credenciais válidas, tentar obtê-las (isso funcionaria em ambiente local com browser)
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             try:
                 creds.refresh(Request())
             except Exception as e:
-                print(f"Erro ao atualizar token: {e}. O token pode estar revogado ou inválido. Por favor, gere um novo token.pickle.")
-                raise GoogleCalendarAuthError("Falha ao atualizar token do Google Calendar. Gere um novo token.pickle.")
+                raise GoogleCalendarAuthError(f"Falha ao refresh do token: {e}. O token pode estar revogado ou os escopos são insuficientes.")
         else:
-            print("Nenhum token válido encontrado. Por favor, certifique-se de que 'token.pickle' esteja presente e válido no caminho especificado.")
-            print(f"Caminho esperado do token: {token_path}")
-            raise GoogleCalendarAuthError("Token do Google Calendar não encontrado ou inválido. Por favor, pré-gere o arquivo token.pickle.")
-
-        try:
-            with open(token_path, 'wb') as token:
-                pickle.dump(creds, token)
-        except Exception as e:
-            print(f"Aviso: Não foi possível salvar o token atualizado em {token_path}: {e}")
+            # Em um ambiente de servidor (como Docker/EasyPanel), a geração interativa de um novo token não é possível.
+            # O token.pickle deve ser gerado localmente e copiado para o volume persistente do servidor.
+            # Se você chegou aqui e creds é None, significa que token.pickle não existe ou é inválido
+            # e você está em um ambiente sem UI para o fluxo de autenticação.
+            raise GoogleCalendarAuthError(
+                "Credenciais do Google Calendar ausentes ou inválidas. "
+                "Por favor, gere o arquivo 'token.pickle' localmente e o disponibilize no caminho configurado."
+            )
+    
+    # Salva as credenciais atualizadas (especialmente após um refresh)
+    try:
+        with open(token_path, 'wb') as token:
+            pickle.dump(creds, token)
+    except Exception as e:
+        print(f"Aviso: Não foi possível salvar o token.pickle atualizado: {e}")
 
     try:
         service = build('calendar', 'v3', credentials=creds)
         return service
-    except HttpError as error:
-        print(f'Ocorreu um erro ao construir o serviço do Google Calendar: {error}')
-        raise GoogleCalendarAuthError(f"Erro ao conectar ao Google Calendar API: {error}")
+    except Exception as e:
+        raise GoogleCalendarAuthError(f"Erro ao construir o serviço do Google Calendar: {e}")
 
 
+# Modelos Pydantic para entrada das ferramentas
 class CreateCalendarEventInput(BaseModel):
-    summary: str = Field(description="Título ou resumo do evento.")
-    start_datetime: str = Field(description="Data e hora de início do evento no formato 'YYYY-MM-DDTHH:MM:SS'. Ex: '2025-12-25T10:00:00'.")
-    end_datetime: str = Field(description="Data e hora de término do evento no formato 'YYYY-MM-DDTHH:MM:SS'. Ex: '2025-12-25T11:00:00'.")
-    description: Optional[str] = Field(default=None, description="Descrição detalhada do evento.")
-    location: Optional[str] = Field(default=None, description="Local do evento.")
-    attendees: Optional[list[str]] = Field(default=None, description="Lista de e-mails dos participantes. Ex: ['email1@example.com', 'email2@example.com'].")
+    summary: str = Field(description="Título ou nome do evento.")
+    start_datetime: str = Field(description="Data e hora de início do evento no formato ISO 8601 (YYYY-MM-DDTHH:MM:SS), por exemplo, '2023-10-27T10:00:00'.")
+    end_datetime: Optional[str] = Field(description="Data e hora de término do evento no formato ISO 8601 (YYYY-MM-DDTHH:MM:SS). Se não fornecido, será calculado com base na duração padrão (1 hora).", default=None)
+    description: Optional[str] = Field(description="Descrição detalhada do evento.", default=None)
+    location: Optional[str] = Field(description="Local do evento.", default=None)
+
+class ListCalendarEventsInput(BaseModel):
+    max_results: int = Field(description="Número máximo de eventos a serem retornados.", default=10)
+    time_min: Optional[str] = Field(description="Data e hora mínima (início do período de busca) no formato ISO 8601 com 'Z' para UTC, por exemplo, '2023-10-27T00:00:00Z'. Se não fornecido, usará a data e hora atual.", default=None)
+    time_max: Optional[str] = Field(description="Data e hora máxima (fim do período de busca) no formato ISO 8601 com 'Z' para UTC, por exemplo, '2023-10-27T23:59:59Z'. Usado para filtrar eventos dentro de um dia específico. Se não fornecido, listará eventos futuros a partir de time_min.", default=None)
+    query: Optional[str] = Field(description="Palavra-chave para filtrar eventos por título.", default=None)
+
+class UpdateCalendarEventInput(BaseModel):
+    event_id: str = Field(description="O ID único do evento a ser atualizado.")
+    summary: Optional[str] = Field(description="Novo título do evento.", default=None)
+    start_datetime: Optional[str] = Field(description="Nova data e hora de início do evento no formato ISO 8601 (YYYY-MM-DDTHH:MM:SS).", default=None)
+    end_datetime: Optional[str] = Field(description="Nova data e hora de término do evento no formato ISO 8601 (YYYY-MM-DDTHH:MM:SS).", default=None)
+    description: Optional[str] = Field(description="Nova descrição detalhada do evento.", default=None)
+    location: Optional[str] = Field(description="Novo local do evento.", default=None)
+
+class DeleteCalendarEventInput(BaseModel):
+    event_id: str = Field(description="O ID único do evento a ser deletado.")
+
+class GetEventIdByDetailsInput(BaseModel):
+    summary: str = Field(description="O título exato do evento a ser encontrado.")
+    start_datetime: Optional[str] = Field(description="A data e hora de início aproximada do evento no formato ISO 8601 (YYYY-MM-DDTHH:MM:SS). Ajuda a refinar a busca.", default=None)
+    end_datetime: Optional[str] = Field(description="A data e hora de término aproximada do evento no formato ISO 8601 (YYYY-MM-DDTHH:MM:SS). Ajuda a refinar a busca.", default=None)
+    # Adicionado um parâmetro para procurar em um intervalo se as datas exatas não forem fornecidas
+    search_days_around_start: int = Field(description="Número de dias para procurar o evento ao redor do 'start_datetime' fornecido. Útil se a data/hora exata não for conhecida. Padrão para 0 (apenas o dia exato).", default=0)
+
 
 class CreateCalendarEventTool(BaseTool):
     name: str = "Criar Evento no Google Calendar"
-    description: str = "Cria um novo evento no Google Calendar com base nos detalhes fornecidos."
+    description: str = (
+        "Cria um novo evento no Google Calendar. "
+        "Requer o título (summary) e a data/hora de início (start_datetime). "
+        "A hora de término (end_datetime) é opcional; se não fornecida, o evento terá duração padrão de 1 hora. "
+        "Exemplo de uso: `Criar Evento no Google Calendar(summary='Reunião de Equipe', start_datetime='2023-11-15T10:00:00', description='Discutir projetos', location='Sala A')`"
+    )
     args_schema: Type[BaseModel] = CreateCalendarEventInput
 
-    def _run(self, summary: str, start_datetime: str, end_datetime: str, description: Optional[str] = None, location: Optional[str] = None, attendees: Optional[list[str]] = None) -> str:
+    def _run(self, summary: str, start_datetime: str, end_datetime: Optional[str] = None, description: Optional[str] = None, location: Optional[str] = None) -> str:
         try:
             service = get_google_calendar_service()
+            
+            # Converte a string de data/hora para objeto datetime
+            start_dt_obj = datetime.fromisoformat(start_datetime)
+            
+            # Se end_datetime não for fornecido, calcula 1 hora depois de start_datetime
+            if not end_datetime:
+                end_dt_obj = start_dt_obj + timedelta(hours=1) # CORRIGIDO: Agora usa timedelta corretamente
+                end_datetime = end_dt_obj.isoformat()
+            else:
+                end_dt_obj = datetime.fromisoformat(end_datetime) # Verifica se o end_datetime é válido
+
             event = {
                 'summary': summary,
-                'description': description,
                 'location': location,
+                'description': description,
                 'start': {
                     'dateTime': start_datetime,
-                    'timeZone': 'America/Sao_Paulo',
+                    'timeZone': 'America/Sao_Paulo', # Supondo fuso horário padrão para criação
                 },
                 'end': {
                     'dateTime': end_datetime,
-                    'timeZone': 'America/Sao_Paulo',
-                },
-                'reminders': {
-                    'useDefault': False,
-                    'overrides': [
-                        {'method': 'email', 'minutes': 24 * 60},
-                        {'method': 'popup', 'minutes': 10},
-                    ],
+                    'timeZone': 'America/Sao_Paulo', # Supondo fuso horário padrão para criação
                 },
             }
-            if attendees:
-                event['attendees'] = [{'email': email} for email in attendees]
 
             event = service.events().insert(calendarId='primary', body=event).execute()
+            
+            # Formata a saída para ser mais amigável
+            start_formatted = datetime.fromisoformat(event['start']['dateTime']).strftime('%d/%m/%Y às %H:%M')
+            end_formatted = datetime.fromisoformat(event['end']['dateTime']).strftime('%d/%m/%Y às %H:%M')
 
-            start_obj = datetime.fromisoformat(start_datetime)
-            end_obj = datetime.fromisoformat(end_datetime)
-
-            return (f"Evento criado com sucesso! Link: {event.get('htmlLink')} | "
-                    f"Nome: {summary} | "
-                    f"Data: {start_obj.strftime('%d/%m/%Y')} | "
-                    f"Início: {start_obj.strftime('%H:%M')} | "
-                    f"Término: {end_obj.strftime('%H:%M')}")
+            return (f"✅ Evento Criado com Sucesso!\n\n"
+                    f"*Nome:* {event['summary']}\n"
+                    f"*Data:* {datetime.fromisoformat(event['start']['dateTime']).strftime('%d/%m/%Y')}\n"
+                    f"*Início:* {start_formatted.split(' ')[2]}\n" # Pega apenas a hora
+                    f"*Término:* {end_formatted.split(' ')[2]}\n" # Pega apenas a hora
+                    f"*ID:* {event['id']}")
 
         except GoogleCalendarAuthError as e:
             return f"Erro de autenticação do Google Calendar: {e}"
         except HttpError as error:
-            return f"Ocorreu um erro ao criar o evento no Google Calendar: {error}"
+            return f"Ocorreu um erro ao criar o evento do Google Calendar: {error}"
         except Exception as e:
             return f"Ocorreu um erro inesperado ao criar o evento: {e}"
 
-class ListCalendarEventsInput(BaseModel):
-    max_results: int = Field(default=10, description="Número máximo de eventos a serem listados.")
-    time_min: Optional[str] = Field(default=None, description="Data e hora mínima para filtrar eventos (formato ISO 8601, ex: '2025-06-13T00:00:00Z'). Se não fornecido, lista eventos a partir de agora.")
-    time_max: Optional[str] = Field(default=None, description="Data e hora máxima para filtrar eventos (formato ISO 8601, ex: '2025-06-13T23:59:59Z').")
-    query: Optional[str] = Field(default=None, description="Texto para buscar em eventos (título, descrição, local).") # Adicionado para busca
-    event_id: Optional[str] = Field(default=None, description="ID específico do evento a ser buscado.") # Adicionado para busca por ID
-
-
 class ListCalendarEventsTool(BaseTool):
     name: str = "Listar Eventos do Google Calendar"
-    description: str = "Lista eventos do Google Calendar. Pode filtrar por um número máximo de resultados, um intervalo de tempo (time_min e time_max), uma query de texto ou um ID de evento específico."
+    description: str = (
+        "Lista eventos do Google Calendar. "
+        "Pode filtrar por número máximo de resultados (max_results), "
+        "período (time_min e time_max no formato ISO 8601 com 'Z' para UTC, e.g., '2023-10-27T00:00:00Z'), "
+        "e palavra-chave no título (query). "
+        "Exemplo de uso: `Listar Eventos do Google Calendar(time_min='2023-11-01T00:00:00Z', time_max='2023-11-30T23:59:59Z', query='Reunião')`"
+    )
     args_schema: Type[BaseModel] = ListCalendarEventsInput
 
-    def _run(self, max_results: int = 10, time_min: Optional[str] = None, time_max: Optional[str] = None, query: Optional[str] = None, event_id: Optional[str] = None) -> str:
+    def _run(self, max_results: int = 10, time_min: Optional[str] = None, time_max: Optional[str] = None, query: Optional[str] = None) -> str:
         try:
             service = get_google_calendar_service()
             
-            # Se um event_id for fornecido, tenta buscar apenas aquele evento
-            if event_id:
-                try:
-                    event = service.events().get(calendarId='primary', eventId=event_id).execute()
-                    start = event['start'].get('dateTime', event['start'].get('date'))
-                    start_obj = datetime.fromisoformat(start)
-                    start_formatted = start_obj.strftime('%d/%m/%Y às %H:%M')
-                    return (f"Evento encontrado por ID:\n"
-                            f"- {event['summary']} (Início: {start_formatted}, ID: {event['id']})")
-                except HttpError as e:
-                    if e.resp.status == 404:
-                        return f"Evento com ID '{event_id}' não encontrado."
-                    raise # Re-lança outros erros HTTP
-                
-            now_utc = datetime.now(timezone.utc).isoformat()
-            
+            now_utc = datetime.now(timezone.utc).isoformat(timespec='seconds') + 'Z' # Current time in UTC
+
+            # Garante que timeMin seja fornecido ou usa o tempo atual
             list_params = {
                 'calendarId': 'primary',
                 'timeMin': time_min if time_min else now_utc,
@@ -164,8 +188,8 @@ class ListCalendarEventsTool(BaseTool):
             }
             if time_max:
                 list_params['timeMax'] = time_max
-            if query: # Adiciona a query de texto
-                list_params['q'] = query
+            if query:
+                list_params['q'] = query # 'q' é o parâmetro de query para a API
 
             events_result = service.events().list(**list_params).execute()
             events = events_result.get('items', [])
@@ -174,14 +198,23 @@ class ListCalendarEventsTool(BaseTool):
                 return "Nenhum evento encontrado para o período especificado ou com a query."
             
             events_list = []
-            for event in events:
+            for i, event in enumerate(events):
                 start = event['start'].get('dateTime', event['start'].get('date'))
+                # Formata a data/hora para ser mais legível
                 start_obj = datetime.fromisoformat(start)
-                start_formatted = start_obj.strftime('%d/%m/%Y às %H:%M')
-                # Inclui o ID do evento para futuras operações de update/delete
-                events_list.append(f"- {event['summary']} (Início: {start_formatted}, ID: {event['id']})")
+                # Formata para o fuso horário de São Paulo para exibição, se for um datetime
+                if 'dateTime' in event['start']:
+                    sao_paulo_tz = datetime.now().astimezone().tzinfo # Obtém o fuso horário local ou um específico se quiser fixar
+                    start_obj_local = start_obj.astimezone(sao_paulo_tz)
+                    start_formatted = start_obj_local.strftime('%d/%m/%Y às %H:%M')
+                else: # É um evento de dia inteiro, sem hora
+                    start_formatted = start_obj.strftime('%d/%m/%Y')
+                
+                # Adiciona o ID do evento na saída
+                event_id = event.get('id', 'N/A')
+                events_list.append(f"{i+1}. **Título:** {event['summary']}\n   - **Data:** {start_formatted.split(' ')[0]}\n   - **Início:** {'N/A' if 'date' in event['start'] else start_formatted.split(' ')[2]}\n   - **ID:** {event_id}")
             
-            return "Eventos encontrados:\n" + "\n".join(events_list)
+            return f"✅ Aqui estão seus eventos para hoje, {datetime.now().strftime('%d de %B de %Y')}:\n\n" + "\n\n".join(events_list) + "\n\nSe precisar de mais informações ou de ajuda com outro evento, é só avisar!"
         except GoogleCalendarAuthError as e:
             return f"Erro de autenticação do Google Calendar: {e}"
         except HttpError as error:
@@ -189,149 +222,178 @@ class ListCalendarEventsTool(BaseTool):
         except Exception as e:
             return f"Ocorreu um erro inesperado ao listar eventos: {e}"
 
-# --- NOVAS FERRAMENTAS ---
-
-class GetEventIdByDetailsInput(BaseModel):
-    summary: str = Field(description="Título exato do evento a ser encontrado.")
-    start_datetime: str = Field(description="Data e hora de início exata do evento no formato 'YYYY-MM-DDTHH:MM:SS'.")
-
-class GetEventIdByDetailsTool(BaseTool):
-    name: str = "Obter ID de Evento por Detalhes"
-    description: str = "Busca o ID de um evento no Google Calendar usando o título e a data/hora de início exatos. Útil para encontrar o ID antes de deletar ou atualizar."
-    args_schema: Type[BaseModel] = GetEventIdByDetailsInput
-
-    def _run(self, summary: str, start_datetime: str) -> str:
-        try:
-            service = get_google_calendar_service()
-            
-            # Formata a data/hora de início para o fuso horário correto e ISO 8601
-            # Garante que time_min e time_max cobrem um pequeno intervalo para a busca exata
-            start_obj = datetime.fromisoformat(start_datetime)
-            time_min_utc = start_obj.astimezone(timezone.utc).isoformat()
-            
-            # Define um pequeno intervalo para garantir que o evento exato seja encontrado
-            # Adiciona 1 minuto ao time_max para cobrir eventos que começam exatamente no 'start_datetime'
-            time_max_utc = (start_obj + datetime.timedelta(minutes=1)).astimezone(timezone.utc).isoformat()
-
-
-            events_result = service.events().list(
-                calendarId='primary',
-                timeMin=time_min_utc,
-                timeMax=time_max_utc,
-                q=summary, # Busca pelo resumo/título
-                singleEvents=True,
-                orderBy='startTime'
-            ).execute()
-            
-            events = events_result.get('items', [])
-
-            if not events:
-                return f"Nenhum evento encontrado com o título '{summary}' e início em '{start_datetime}'. Verifique o título e a data/hora."
-            
-            # Filtra eventos que correspondem exatamente à data e hora de início
-            found_events = []
-            for event in events:
-                event_start = event['start'].get('dateTime', event['start'].get('date'))
-                event_start_obj = datetime.fromisoformat(event_start)
-                
-                # Compara considerando fuso horário ou ajustando
-                if event_start_obj.replace(tzinfo=None) == start_obj.replace(tzinfo=None): # Ignora tz para comparação se o input não tem tz
-                    found_events.append(event)
-
-            if not found_events:
-                 return f"Nenhum evento encontrado com o título '{summary}' e início em '{start_datetime}'. Verifique o título e a data/hora."
-            
-            if len(found_events) > 1:
-                # Se houver mais de um, precisa de desambiguação, ou retorna o primeiro e alerta.
-                # Por simplicidade, vamos retornar o primeiro e alertar para o agente tratar.
-                return (f"Múltiplos eventos encontrados com o título '{summary}' e início em '{start_datetime}'. "
-                        f"Retornando o ID do primeiro: {found_events[0]['id']}. Por favor, seja mais específico se precisar de um evento diferente.")
-            
-            return found_events[0]['id']
-
-        except GoogleCalendarAuthError as e:
-            return f"Erro de autenticação do Google Calendar: {e}"
-        except HttpError as error:
-            return f"Ocorreu um erro ao buscar o ID do evento no Google Calendar: {error}"
-        except Exception as e:
-            return f"Ocorreu um erro inesperado ao buscar o ID do evento: {e}"
-
-
-class UpdateCalendarEventInput(BaseModel):
-    event_id: str = Field(description="ID do evento a ser atualizado.")
-    summary: Optional[str] = Field(default=None, description="Novo título ou resumo do evento.")
-    start_datetime: Optional[str] = Field(default=None, description="Nova data e hora de início do evento no formato 'YYYY-MM-DDTHH:MM:SS'.")
-    end_datetime: Optional[str] = Field(default=None, description="Nova data e hora de término do evento no formato 'YYYY-MM-DDTHH:MM:SS'.")
-    description: Optional[str] = Field(default=None, description="Nova descrição detalhada do evento.")
-    location: Optional[str] = Field(default=None, description="Novo local do evento.")
-    attendees: Optional[list[str]] = Field(default=None, description="Nova lista de e-mails dos participantes.")
-    
 class UpdateCalendarEventTool(BaseTool):
     name: str = "Atualizar Evento no Google Calendar"
-    description: str = "Atualiza um evento existente no Google Calendar. Requer o ID do evento e os campos a serem alterados. Se o ID não for fornecido, use 'Obter ID de Evento por Detalhes' primeiro."
+    description: str = (
+        "Atualiza um evento existente no Google Calendar usando o ID do evento. "
+        "Pode alterar título (summary), data/hora de início (start_datetime), "
+        "data/hora de término (end_datetime), descrição (description) e local (location). "
+        "Pelo menos um campo para atualização além do event_id deve ser fornecido. "
+        "Exemplo de uso: `Atualizar Evento no Google Calendar(event_id='abcdef123', start_datetime='2023-11-16T15:00:00', location='Sala B')`"
+    )
     args_schema: Type[BaseModel] = UpdateCalendarEventInput
 
-    def _run(self, event_id: str, summary: Optional[str] = None, start_datetime: Optional[str] = None, end_datetime: Optional[str] = None, description: Optional[str] = None, location: Optional[str] = None, attendees: Optional[list[str]] = None) -> str:
+    def _run(self, event_id: str, summary: Optional[str] = None, start_datetime: Optional[str] = None, end_datetime: Optional[str] = None, description: Optional[str] = None, location: Optional[str] = None) -> str:
         try:
             service = get_google_calendar_service()
-            
-            # Primeiro, obtém o evento existente para não sobrescrever campos não fornecidos
+
+            # Primeiro, recupere o evento existente para não sobrescrever campos não especificados
             event = service.events().get(calendarId='primary', eventId=event_id).execute()
-            
-            # Atualiza os campos se novos valores forem fornecidos
+
+            # Atualiza os campos fornecidos
             if summary is not None:
                 event['summary'] = summary
             if description is not None:
                 event['description'] = description
             if location is not None:
                 event['location'] = location
+            
             if start_datetime is not None:
                 event['start']['dateTime'] = start_datetime
-                event['start']['timeZone'] = 'America/Sao_Paulo'
+                # Se start_datetime é atualizado e end_datetime não, recalcula end_datetime se for um evento com horário
+                if 'dateTime' in event['end'] and end_datetime is None:
+                    # Tenta inferir a duração se possível ou assume padrão de 1h
+                    start_dt_obj = datetime.fromisoformat(start_datetime)
+                    old_end_dt_obj = datetime.fromisoformat(event['end']['dateTime'])
+                    old_start_dt_obj = datetime.fromisoformat(event['start']['dateTime'])
+                    duration = old_end_dt_obj - old_start_dt_obj
+                    # Se a duração for 0, ou negativa (o que não deveria acontecer), ou muito grande, assume 1h
+                    if duration <= timedelta(minutes=0) or duration > timedelta(hours=24):
+                        duration = timedelta(hours=1)
+                    event['end']['dateTime'] = (start_dt_obj + duration).isoformat()
+                elif 'date' in event['end'] and end_datetime is None: # Se era um evento de dia inteiro, mantém como dia inteiro ou força 1h
+                     event['end']['date'] = (datetime.fromisoformat(start_datetime)).strftime('%Y-%m-%d')
+            
             if end_datetime is not None:
                 event['end']['dateTime'] = end_datetime
+
+            # Garante que timeZone esteja presente se for evento com dateTime
+            if 'dateTime' in event['start'] and 'timeZone' not in event['start']:
+                event['start']['timeZone'] = 'America/Sao_Paulo'
+            if 'dateTime' in event['end'] and 'timeZone' not in event['end']:
                 event['end']['timeZone'] = 'America/Sao_Paulo'
-            if attendees is not None:
-                event['attendees'] = [{'email': email} for email in attendees]
-            
+
+
             updated_event = service.events().update(calendarId='primary', eventId=event_id, body=event).execute()
             
-            start_obj = datetime.fromisoformat(updated_event['start'].get('dateTime', updated_event['start'].get('date')))
-            end_obj = datetime.fromisoformat(updated_event['end'].get('dateTime', updated_event['end'].get('date')))
+            # Formata a saída para ser mais amigável
+            start_formatted = datetime.fromisoformat(updated_event['start'].get('dateTime', updated_event['start'].get('date'))).strftime('%d/%m/%Y às %H:%M')
+            end_formatted = datetime.fromisoformat(updated_event['end'].get('dateTime', updated_event['end'].get('date'))).strftime('%d/%m/%Y às %H:%M')
 
-            return (f"Evento atualizado com sucesso! Link: {updated_event.get('htmlLink')} | "
-                    f"Nome: {updated_event['summary']} | "
-                    f"Data: {start_obj.strftime('%d/%m/%Y')} | "
-                    f"Início: {start_obj.strftime('%H:%M')} | "
-                    f"Término: {end_obj.strftime('%H:%M')}")
+            return (f"✅ Evento Atualizado com Sucesso!\n\n"
+                    f"*Nome:* {updated_event['summary']}\n"
+                    f"*Data:* {start_formatted.split(' ')[0]}\n"
+                    f"*Início:* {'N/A' if 'date' in updated_event['start'] else start_formatted.split(' ')[2]}\n"
+                    f"*Término:* {'N/A' if 'date' in updated_event['end'] else end_formatted.split(' ')[2]}\n"
+                    f"*ID:* {updated_event['id']}")
 
         except GoogleCalendarAuthError as e:
             return f"Erro de autenticação do Google Calendar: {e}"
         except HttpError as error:
             if error.resp.status == 404:
-                return f"Erro: Evento com ID '{event_id}' não encontrado para atualização."
-            return f"Ocorreu um erro ao atualizar o evento no Google Calendar: {error}"
+                return f"Evento com ID '{event_id}' não encontrado."
+            return f"Ocorreu um erro ao atualizar o evento do Google Calendar: {error}"
         except Exception as e:
             return f"Ocorreu um erro inesperado ao atualizar o evento: {e}"
 
-class DeleteCalendarEventInput(BaseModel):
-    event_id: str = Field(description="ID do evento a ser deletado.")
-
 class DeleteCalendarEventTool(BaseTool):
     name: str = "Deletar Evento no Google Calendar"
-    description: str = "Deleta um evento existente no Google Calendar. Requer o ID do evento. Se o ID não for fornecido, use 'Obter ID de Evento por Detalhes' primeiro."
+    description: str = (
+        "Deleta um evento do Google Calendar usando o ID do evento. "
+        "Exemplo de uso: `Deletar Evento no Google Calendar(event_id='abcdef123')`"
+    )
     args_schema: Type[BaseModel] = DeleteCalendarEventInput
 
     def _run(self, event_id: str) -> str:
         try:
             service = get_google_calendar_service()
             service.events().delete(calendarId='primary', eventId=event_id).execute()
-            return f"Evento com ID '{event_id}' deletado com sucesso."
+            return f"✅ Evento com ID '{event_id}' deletado com sucesso."
         except GoogleCalendarAuthError as e:
             return f"Erro de autenticação do Google Calendar: {e}"
         except HttpError as error:
             if error.resp.status == 404:
-                return f"Erro: Evento com ID '{event_id}' não encontrado para exclusão."
-            return f"Ocorreu um erro ao deletar o evento no Google Calendar: {error}"
+                return f"Evento com ID '{event_id}' não encontrado."
+            return f"Ocorreu um erro ao deletar o evento do Google Calendar: {error}"
         except Exception as e:
             return f"Ocorreu um erro inesperado ao deletar o evento: {e}"
+
+class GetEventIdByDetailsTool(BaseTool):
+    name: str = "Obter ID de Evento por Detalhes"
+    description: str = (
+        "Busca o ID de um evento no Google Calendar usando o título (summary) e, opcionalmente, "
+        "a data/hora de início (start_datetime) ou um intervalo de busca (search_days_around_start). "
+        "Útil quando o ID do evento não é conhecido. "
+        "Retorna o ID do evento se encontrado, ou uma mensagem de erro/não encontrado. "
+        "Se múltiplas correspondências forem encontradas, pedirá mais detalhes. "
+        "Exemplo de uso: `Obter ID de Evento por Detalhes(summary='Reunião de Projeto', start_datetime='2023-11-15T09:00:00')`"
+    )
+    args_schema: Type[BaseModel] = GetEventIdByDetailsInput
+
+    def _run(self, summary: str, start_datetime: Optional[str] = None, end_datetime: Optional[str] = None, search_days_around_start: int = 0) -> str:
+        try:
+            service = get_google_calendar_service()
+            
+            list_params = {
+                'calendarId': 'primary',
+                'singleEvents': True,
+                'orderBy': 'startTime',
+                'q': summary # Filtra por query de texto
+            }
+
+            now_utc = datetime.now(timezone.utc)
+            time_min_search = None
+            time_max_search = None
+
+            if start_datetime:
+                start_dt_obj = datetime.fromisoformat(start_datetime)
+                # Adiciona ou subtrai dias para o intervalo de busca
+                time_min_search = (start_dt_obj - timedelta(days=search_days_around_start)).isoformat(timespec='seconds') + 'Z'
+                # Se não há end_datetime, assume um período razoável para busca (e.g., 24 horas após start_datetime, ou até o final do dia se search_days_around_start for 0)
+                if not end_datetime:
+                    time_max_search = (start_dt_obj + timedelta(days=search_days_around_start + 1) - timedelta(seconds=1)).isoformat(timespec='seconds') + 'Z'
+                else:
+                    time_max_search = datetime.fromisoformat(end_datetime).isoformat(timespec='seconds') + 'Z'
+            else:
+                # Se nenhuma data é fornecida, busca a partir de agora para o futuro próximo (e.g., próximos 7 dias)
+                time_min_search = now_utc.isoformat(timespec='seconds') + 'Z'
+                time_max_search = (now_utc + timedelta(days=7)).isoformat(timespec='seconds') + 'Z'
+
+            list_params['timeMin'] = time_min_search
+            list_params['timeMax'] = time_max_search
+            
+            # Ajusta maxResults para buscar mais eventos na faixa de tempo para encontrar o correto
+            list_params['maxResults'] = 20 # Aumentar o limite para garantir que encontre
+
+            events_result = service.events().list(**list_params).execute()
+            events = events_result.get('items', [])
+
+            matching_events = []
+            for event in events:
+                # O filtro 'q' da API do Google Calendar já faz uma boa parte do trabalho.
+                # Podemos adicionar uma verificação extra aqui se o summary for muito genérico
+                # e quisermos uma correspondência exata de título.
+                if event.get('summary', '').lower() == summary.lower():
+                    matching_events.append(event)
+            
+            if not matching_events:
+                return "Nenhum evento encontrado com os detalhes fornecidos."
+            
+            if len(matching_events) > 1:
+                # Se houver múltiplos eventos com o mesmo título, listar para desambiguação
+                event_details = []
+                for event in matching_events:
+                    start = event['start'].get('dateTime', event['start'].get('date'))
+                    start_obj = datetime.fromisoformat(start)
+                    event_details.append(f" - Título: {event['summary']}, Data: {start_obj.strftime('%d/%m/%Y %H:%M')}, ID: {event['id']}")
+                return f"Múltiplos eventos encontrados com o título '{summary}'. Por favor, forneça mais detalhes (data/hora específica) para identificar o evento:\n" + "\n".join(event_details)
+
+            # Se exatamente um evento for encontrado
+            return matching_events[0]['id']
+
+        except GoogleCalendarAuthError as e:
+            return f"Erro de autenticação do Google Calendar: {e}"
+        except HttpError as error:
+            return f"Ocorreu um erro ao buscar o ID do evento do Google Calendar: {error}"
+        except Exception as e:
+            return f"Ocorreu um erro inesperado ao buscar o ID do evento: {e}"
