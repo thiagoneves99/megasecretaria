@@ -2,16 +2,28 @@
 
 from crewai import Task
 from app.agents import MegaSecretaryAgents
-# NOVO: Importar as ferramentas do Google Calendar
 from app.tools.google_calendar_tools import CreateCalendarEventTool, ListCalendarEventsTool
+
+# NOVO: Para obter a data e hora atuais com fuso horário
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 class MegaSecretaryTasks:
     def __init__(self):
         self.agents = MegaSecretaryAgents()
+        # NOVO: Define o fuso horário de São Paulo
+        self.sao_paulo_tz = ZoneInfo("America/Sao_Paulo")
+
+    def _get_current_time_context(self):
+        """Retorna uma string com a data e hora atuais para injetar nos prompts."""
+        now = datetime.now(self.sao_paulo_tz).strftime('%A, %d de %B de %Y, %H:%M:%S')
+        return f"Contexto Atual: A data e hora exatas agora em São Paulo são: {now}. Use esta informação para interpretar referências relativas como 'hoje', 'amanhã' ou 'semana que vem'."
 
     def route_request_task(self, user_message: str):
         return Task(
             description=f"""
+            {self._get_current_time_context()}
+
             Analise a seguinte mensagem do usuário e determine a intenção principal:
             "{user_message}"
 
@@ -21,44 +33,49 @@ class MegaSecretaryTasks:
             a intenção é 'outra_requisição'.
 
             Sua saída deve ser uma string simples indicando a intenção.
-            Exemplos:
-            - "gerenciamento de calendário"
-            - "outra_requisição"
             """,
-            expected_output="Uma string indicando a intenção da requisição ('gerenciamento de calendário' ou 'outra_requisição').",
+            expected_output="Uma string indicando a intenção ('gerenciamento de calendário' ou 'outra_requisição').",
             agent=self.agents.request_router_agent(),
-            output_file='request_intent.txt' # Salva a intenção para ser lida por outra tarefa/processo
+            output_file='request_intent.txt'
         )
 
     def manage_calendar_task(self, user_message: str):
         return Task(
             description=f"""
-            Com base na seguinte mensagem do usuário, utilize as ferramentas de Google Calendar para criar ou listar eventos.
-            Você deve extrair todas as informações relevantes para a ação (criar ou listar).
+            {self._get_current_time_context()}
 
-            Para criar um evento, você precisará de:
-            - Título do evento
-            - Data e hora de início (formato YYYY-MM-DDTHH:MM:SS)
-            - Data e hora de término (formato YYYY-MM-DDTHH:MM:SS)
-            - Descrição (opcional)
-            - Local (opcional)
-            - Participantes (e-mails, opcional)
-
-            Se a mensagem for para listar eventos, use a ferramenta de listagem.
-            Se precisar de mais informações do usuário para criar um evento, peça-as de forma clara.
-
+            Sua tarefa é gerenciar eventos no Google Calendar com base na mensagem do usuário.
             Mensagem do usuário: "{user_message}"
+
+            REGRAS IMPORTANTES:
+            1.  **Extração de Título:** Extraia o título do evento EXATAMENTE como o usuário informou. Se ele disser "...reunião com o nome patricia linda", o título é "patricia linda". NÃO use títulos genéricos como "Reunião".
+            2.  **Duração Padrão:** Se o usuário especificar uma hora de início mas NÃO uma duração ou hora de término, você DEVE assumir uma duração padrão de 1 (UMA) hora.
+            3.  **Listar Eventos em Dia Específico:** Se o usuário pedir a agenda de um dia específico (ex: "agenda de amanhã" ou "eventos do dia 16/06"), você DEVE usar a ferramenta `Listar Eventos do Google Calendar` fornecendo tanto `time_min` (o início do dia, 00:00:00) quanto `time_max` (o fim do dia, 23:59:59) para filtrar APENAS aquele dia.
+            4.  **Criação de Evento:** Para criar um evento, extraia todas as informações (título, data, hora de início, duração, etc.). Calcule a hora de término com base na duração (padrão de 1h se não especificada).
+            5.  **Peça Informações:** Se faltarem informações CRÍTICAS para criar um evento (como o título ou a data/hora de início), peça-as claramente ao usuário.
+
+            Utilize as ferramentas de Google Calendar para executar a ação.
             """,
-            expected_output="Confirmação da criação do evento, URL do evento, ou lista de eventos, ou uma pergunta para obter mais informações.",
+            expected_output="""
+            - Se um evento for criado: Uma resposta formatada confirmando a criação, baseada na saída da ferramenta. Exemplo:
+              '✅ Evento Criado com Sucesso!
+
+              *Nome:* Nome do Evento
+              *Data:* DD/MM/YYYY
+              *Início:* HH:MM
+              *Término:* HH:MM'
+            - Se eventos forem listados: A lista de eventos fornecida pela ferramenta.
+            - Se faltar informação: Uma pergunta clara ao usuário solicitando os dados necessários.
+            """,
             agent=self.agents.calendar_manager_agent(),
-            # CORREÇÃO DO NAMERROR: As ferramentas agora estão importadas
             tools=[CreateCalendarEventTool(), ListCalendarEventsTool()]
         )
 
-    # NOVO: Tarefa para lidar com requisições gerais
     def general_chat_task(self, user_message: str):
         return Task(
             description=f"""
+            {self._get_current_time_context()}
+
             A requisição do usuário não é sobre gerenciamento de calendário.
             Responda à pergunta do usuário de forma útil e amigável.
             Tente responder a perguntas gerais ou continuar uma conversa.
@@ -66,6 +83,6 @@ class MegaSecretaryTasks:
 
             Mensagem do usuário: "{user_message}"
             """,
-            expected_output="Uma resposta útil e amigável à pergunta do usuário, ou uma mensagem educada se não puder ajudar.",
-            agent=self.agents.general_chatter_agent() # Atribuído ao novo agente geral
+            expected_output="Uma resposta útil e amigável à pergunta do usuário.",
+            agent=self.agents.general_chatter_agent()
         )
