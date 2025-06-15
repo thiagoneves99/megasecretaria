@@ -1,7 +1,7 @@
 # mega_secretaria/Dockerfile
 
-# Use uma imagem base Python leve
-FROM python:3.10-slim-buster
+# Use uma imagem base Python leve com uma versão mais recente do Debian para garantir sqlite3 >= 3.35.0
+FROM python:3.10-slim-bullseye
 
 # Define o diretório de trabalho dentro do contêiner
 WORKDIR /app
@@ -20,4 +20,3 @@ EXPOSE 8000
 # O --host 0.0.0.0 é necessário para que a aplicação seja acessível de fora do contêiner
 # O --port 8000 é a porta padrão que o EasyPanel espera
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
-
