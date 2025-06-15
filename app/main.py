@@ -83,25 +83,25 @@ async def whatsapp_webhook(
 
         crew_instance = MegaSecretaryCrew(user_message=message_content)
         
-        # CORREÇÃO AQUI: Remover .raw_output
+        # CORREÇÃO: Usar str() para garantir que é uma string
         routing_result = crew_instance.run_routing_flow()
-        intent = str(routing_result).strip().lower() # <--- CORREÇÃO APLICADA AQUI (casting para string garante)
+        intent = str(routing_result).strip().lower() # Já estava correto aqui
         print(f"Intenção detectada: {intent}")
 
         final_response = ""
         if "gerenciamento de calendário" in intent:
             print("Iniciando fluxo de calendário...")
             crew_result = crew_instance.run_calendar_flow()
-            final_response = crew_result
+            final_response = str(crew_result) # <--- CORREÇÃO APLICADA AQUI
         else:
             print("Iniciando fluxo de outras requisições...")
             crew_result = crew_instance.run_other_flow()
-            final_response = crew_result
+            final_response = str(crew_result) # <--- CORREÇÃO APLICADA AQUI
         
         print(f"Resposta final da CrewAI: {final_response}")
         # NOVO PRINT DE DEBUG ANTES DE CHAMAR O SERVIÇO DE WHATSAPP
         print(f"DEBUG_MAIN: Prestes a chamar send_whatsapp_message para {sender_phone} com a resposta.")
-        await send_whatsapp_message(sender_phone, final_response) # <--- CORREÇÃO APLICADA AQUI
+        await send_whatsapp_message(sender_phone, final_response)
 
         log_entry.response_content = final_response
         log_entry.status = "processed"
@@ -110,18 +110,17 @@ async def whatsapp_webhook(
     except HTTPException as http_exc:
         # Se for uma HTTPException, ela já tem o status e detalhes, apenas a re-lançamos
         print(f"HTTPException ocorrida: {http_exc.detail}")
-        # Não enviamos mensagem de erro para o usuário final para HTTPExceptions como "número não autorizado"
         # O log_entry já foi atualizado antes do raise http_exc
         raise http_exc # Re-lançar para que o FastAPI lide com ela
 
     except Exception as e:
         error_message = f"Ocorreu um erro ao processar sua requisição: {e}"
-        print(f"Erro no processamento da CrewAI para {sender_phone}: {e}") # <--- CORREÇÃO APLICADA AQUI
+        print(f"Erro no processamento da CrewAI para {sender_phone}: {e}")
         traceback.print_exc() # Imprime o rastreamento completo do erro para depuração
         
         # NOVO PRINT DE DEBUG ANTES DE CHAMAR O SERVIÇO DE WHATSAPP NO ERRO
-        print(f"DEBUG_MAIN: Chamando send_whatsapp_message com mensagem de erro para {sender_phone}.") # <--- CORREÇÃO APLICADA AQUI
-        await send_whatsapp_message(sender_phone, error_message) # <--- CORREÇÃO APLICADA AQUI
+        print(f"DEBUG_MAIN: Chamando send_whatsapp_message com mensagem de erro para {sender_phone}.")
+        await send_whatsapp_message(sender_phone, error_message)
         
         log_entry.response_content = error_message
         log_entry.status = "error"
