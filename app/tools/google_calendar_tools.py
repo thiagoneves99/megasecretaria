@@ -9,7 +9,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from app.config import settings
-from crewai_tools.tools import BaseTool
+from crewai.tools import BaseTool
 from typing import Type, Optional
 from pydantic import BaseModel, Field
 

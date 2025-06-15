@@ -2,7 +2,7 @@ fastapi
 uvicorn
 python-dotenv
 crewai
-crewai-tools
+crewai-tools==0.47.1
 langchain
 langchain-openai
 google-api-python-client
