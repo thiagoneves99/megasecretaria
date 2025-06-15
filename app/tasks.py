@@ -2,29 +2,26 @@
 
 from crewai import Task
 from app.agents import MegaSecretaryAgents
-from app.tools.google_calendar_tools import CreateCalendarEventTool, ListCalendarEventsTool
+# NOVO: Importar DeleteCalendarEventTool também nas tasks para referência, se necessário no futuro
+from app.tools.google_calendar_tools import CreateCalendarEventTool, ListCalendarEventsTool, DeleteCalendarEventTool 
 
-# NOVO: Para obter a data e hora atuais com fuso horário
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 class MegaSecretaryTasks:
     def __init__(self):
         self.agents = MegaSecretaryAgents()
-        # NOVO: Define o fuso horário de São Paulo
         self.sao_paulo_tz = ZoneInfo("America/Sao_Paulo")
 
     def _get_current_time_context(self):
-        """Retorna uma string com a data e hora atuais para injetar nos prompts."""
         now = datetime.now(self.sao_paulo_tz).strftime('%A, %d de %B de %Y, %H:%M:%S')
         return f"Contexto Atual: A data e hora exatas agora em São Paulo são: {now}. Use esta informação para interpretar referências relativas como 'hoje', 'amanhã' ou 'semana que vem'."
 
-    # Modificar para aceitar o histórico
-    def route_request_task(self, user_message: str, history: str = ""):
+    def route_request_task(self, user_message: str, history: str): # Adicionado history
         return Task(
             description=f"""
             {self._get_current_time_context()}
-            {history} # <--- INJETA O HISTÓRICO AQUI
+            {history} # INJETA O HISTÓRICO AQUI
 
             Analise a seguinte mensagem do usuário e determine a intenção principal:
             "{user_message}"
@@ -37,19 +34,18 @@ class MegaSecretaryTasks:
             Sua saída DEVE ser EXATAMENTE uma das duas strings fornecidas, sem espaços extras, capitalização diferente ou caracteres adicionais:
             'gerenciamento de calendário' ou 'outra_requisição'.
             """,
-            expected_output="Uma string indicando a intenção: 'gerenciamento de calendário' ou 'outra_requisição'.",
+            expected_output="Uma das duas strings: 'gerenciamento de calendário' ou 'outra_requisição'.",
             agent=self.agents.request_router_agent()
         )
 
-    # Modificar para aceitar o histórico
-    def manage_calendar_task(self, user_message: str, history: str = ""):
+    def manage_calendar_task(self, user_message: str, history: str): # Adicionado history
         return Task(
             description=f"""
             {self._get_current_time_context()}
-            {history} # <--- INJETA O HISTÓRICO AQUI
+            {history} # INJETA O HISTÓRICO AQUI
 
             Com base na mensagem do usuário e no histórico da conversa, gerencie o Google Calendar.
-            A mensagem do usuário é: \"{user_message}\"
+            A mensagem do usuário é: "{user_message}"
 
             Você deve ser capaz de:
             - **Criar eventos**: se o usuário pedir para criar um compromisso, reunião, lembrete, etc. Para criar um evento, você precisará de:
@@ -60,9 +56,11 @@ class MegaSecretaryTasks:
                 - Local (location) (opcional)
             - **Listar eventos**: se o usuário pedir para ver os eventos futuros. Pode precisar de:
                 - Data ou período (time_min, time_max) (opcional, se não informado, liste os próximos 10 eventos)
+                - Termo de busca (query) (opcional, para filtrar eventos por título/descrição)
+            - **Deletar eventos**: se o usuário pedir para remover um evento. Você precisará do ID do evento. Se o ID não for fornecido, primeiro liste os eventos relevantes para que o usuário possa identificar e confirmar qual evento deve ser deletado.
 
-            Se alguma informação essencial para criar um evento estiver faltando, **peça ao usuário de forma clara e específica** os dados que faltam.
-            Ao interagir com o usuário, seja sempre educado e claro em suas perguntas ou respostas.
+            Se alguma informação essencial para criar, listar ou deletar um evento estiver faltando, **peça ao usuário de forma clara e específica** os dados que faltam.
+            Ao interagir com o usuário, seja sempre educado e claro em suas perguntas ou respostas. Se precisar do ID de um evento para deletar, liste-os e peça a confirmação do ID.
 
             Utilize as ferramentas de Google Calendar para executar a ação.
             """,
@@ -75,24 +73,23 @@ class MegaSecretaryTasks:
               *Início:* HH:MM
               *Término:* HH:MM'
             - Se eventos forem listados: A lista de eventos fornecida pela ferramenta.
+            - Se um evento for deletado: Uma confirmação clara da exclusão. Exemplo: '✅ Evento deletado com sucesso.'
             - Se faltar informação: Uma pergunta clara ao usuário solicitando os dados necessários.
             """,
             agent=self.agents.calendar_manager_agent(),
-            tools=[CreateCalendarEventTool(), ListCalendarEventsTool()]
+            tools=[CreateCalendarEventTool(), ListCalendarEventsTool(), DeleteCalendarEventTool()] # NOVO: Incluir DeleteCalendarEventTool aqui
         )
 
-    # Modificar para aceitar o histórico
-    def general_chat_task(self, user_message: str, history: str = ""):
+    def general_chat_task(self, user_message: str, history: str): # Adicionado history
         return Task(
             description=f"""
             {self._get_current_time_context()}
-            {history} # <--- INJETA O HISTÓRICO AQUI
+            {history} # INJETA O HISTÓRICO AQUI
 
             A requisição do usuário não é sobre gerenciamento de calendário.
-            Responda à pergunta do usuário de forma útil e amigável, **utilizando o histórico da conversa para manter o contexto e a coerência**.
+            Responda à pergunta do usuário de forma útil e amigável.
             Tente responder a perguntas gerais ou continuar uma conversa.
             Se não souber a resposta, peça desculpas e ofereça ajuda com outra coisa.
-            Lembre-se de informações fornecidas anteriormente pelo usuário, como o nome dele.
 
             Mensagem do usuário: "{user_message}"
             """,
