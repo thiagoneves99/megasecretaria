@@ -3,27 +3,23 @@
 from crewai import Task
 from app.agents import MegaSecretaryAgents
 from app.tools.google_calendar_tools import CreateCalendarEventTool, ListCalendarEventsTool, DeleteCalendarEventTool
-
-# Para obter a data e hora atuais com fuso horário
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 class MegaSecretaryTasks:
     def __init__(self):
         self.agents = MegaSecretaryAgents()
-        # Define o fuso horário de São Paulo
         self.sao_paulo_tz = ZoneInfo("America/Sao_Paulo")
 
     def _get_current_time_context(self):
-        """Retorna uma string com a data e hora atuais para injetar nos prompts."""
-        now = datetime.now(self.sao_paulo_tz).strftime('%A, %d de %B de %Y, %H:%M:%S')
+        now = datetime.now(self.sao_paul_tz).strftime('%A, %d de %B de %Y, %H:%M:%S')
         return f"Contexto Atual: A data e hora exatas agora em São Paulo são: {now}. Use esta informação para interpretar referências relativas como 'hoje', 'amanhã' ou 'semana que vem'."
 
-    def route_request_task(self, user_message: str, history: str = ""): # Adicionado history
+    def route_request_task(self, user_message: str, history: str = ""):
         return Task(
             description=f"""
             {self._get_current_time_context()}
-            {history} # Injeta o histórico aqui
+            {history}
 
             Analise a seguinte mensagem do usuário e determine a intenção principal:
             "{user_message}"
@@ -36,7 +32,7 @@ class MegaSecretaryTasks:
             Sua saída DEVE ser EXATAMENTE uma das duas strings fornecidas, sem espaços extras, capitalização diferente ou caracteres adicionais:
             'gerenciamento de calendário' ou 'outra_requisição'.
             """,
-            expected_output="Uma das strings: 'gerenciamento de calendário' ou 'outra_requisição'.",
+            expected_output="Uma string indicando a intenção: 'gerenciamento de calendário' ou 'outra_requisição'.",
             agent=self.agents.request_router_agent()
         )
 
@@ -44,7 +40,7 @@ class MegaSecretaryTasks:
         return Task(
             description=f"""
             {self._get_current_time_context()}
-            {history} # Injeta o histórico aqui
+            {history}
 
             Com base na mensagem do usuário e no histórico da conversa, gerencie o Google Calendar.
             A mensagem do usuário é: "{user_message}"
@@ -58,7 +54,7 @@ class MegaSecretaryTasks:
                 - Local (location) (opcional)
             - **Listar eventos**: se o usuário pedir para ver os eventos futuros. Pode precisar de:
                 - Data ou período (time_min, time_max) (opcional, se não informado, liste os próximos 10 eventos)
-                - Termo de busca (query) (opcional, para filtrar eventos por título/descrição)
+                - Termo de busca (query) (opcional, para filtrar eventos por título/descrição. **APENAS use 'query' se o usuário especificar um termo claro, como 'reuniões de trabalho' ou 'eventos sobre marketing'. Caso contrário, liste todos os eventos do período.**)
             - **Deletar eventos**: se o usuário pedir para remover um evento. Você precisará do ID do evento. Se o ID não for fornecido, primeiro liste os eventos relevantes para que o usuário possa identificar e confirmar qual evento deve ser deletado.
 
             Se alguma informação essencial para criar, listar ou deletar um evento estiver faltando, **peça ao usuário de forma clara e específica** os dados que faltam.
@@ -67,26 +63,20 @@ class MegaSecretaryTasks:
             Utilize as ferramentas de Google Calendar para executar a ação.
 
             Regras de Saída (Expected Output):
-            - Se um evento for criado: Uma resposta formatada confirmando a criação e detalhes importantes. Exemplo: '✅ Evento Criado com Sucesso!\n*Nome:* Reunião...\n*Data:* 15/06/2025\n*Início:* 10:00\n*Término:* 11:00'
+            - Se um evento for criado: Uma resposta formatada **APENAS** confirmando a criação e detalhes importantes. Exemplo: '✅ Evento Criado com Sucesso!\\n*Nome:* Reunião...\\n*Data:* 15/06/2025\\n*Início:* 10:00\\n*Término:* 11:00\\n*ID:* seu_id_do_evento'. Não inclua listas de eventos subsequentes a menos que seja explicitamente solicitado após a criação.
             - Se eventos forem listados: Retorne **EXATAMENTE** a saída completa da ferramenta `List Calendar Events` (que já virá formatada) OU a mensagem de "Nenhum compromisso agendado para o período especificado", seguida de uma frase amigável para perguntar se o usuário precisa de mais alguma coisa ou se deseja deletar um evento listado usando o ID.
             - Se um evento for deletado: Uma resposta formatada confirmando a exclusão, baseada na saída da ferramenta. Exemplo: '✅ Evento com ID 'seu_id_do_evento' deletado com sucesso.'
             - Se faltar informação: Uma pergunta clara ao usuário solicitando os dados necessários.
             """,
-            # Ajustamos o expected_output para ser mais explícito
-            expected_output="""Uma resposta formatada para a ação de calendário:
-            - Confirmação de criação de evento com detalhes (Nome, Data, Início, Término, ID).
-            - Lista de eventos encontrados OU mensagem de nenhum evento, seguida de uma pergunta sobre próxima ação.
-            - Confirmação de exclusão de evento por ID.
-            - Uma pergunta clara e específica ao usuário se faltar informação.""",
             agent=self.agents.calendar_manager_agent(),
             tools=[CreateCalendarEventTool(), ListCalendarEventsTool(), DeleteCalendarEventTool()]
         )
 
-    def general_chat_task(self, user_message: str, history: str = ""): # Adicionado history
+    def general_chat_task(self, user_message: str, history: str = ""):
         return Task(
             description=f"""
             {self._get_current_time_context()}
-            {history} # Injeta o histórico aqui
+            {history}
 
             A requisição do usuário não é sobre gerenciamento de calendário.
             Responda à pergunta do usuário de forma útil e amigável.
