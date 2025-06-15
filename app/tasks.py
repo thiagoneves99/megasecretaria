@@ -40,11 +40,10 @@ class MegaSecretaryTasks:
             agent=self.agents.request_router_agent()
         )
 
-    def manage_calendar_task(self, user_message: str, history: str = ""): # Renomeado user_history para history
+    def manage_calendar_task(self, user_message: str, history: str = ""):
         return Task(
             description=f"""
             {self._get_current_time_context()}
-
             {history} # Injeta o histórico aqui
 
             Com base na mensagem do usuário e no histórico da conversa, gerencie o Google Calendar.
@@ -66,20 +65,19 @@ class MegaSecretaryTasks:
             Ao interagir com o usuário, seja sempre educado e claro em suas perguntas ou respostas. Se precisar do ID de um evento para deletar, liste-os e peça a confirmação do ID.
 
             Utilize as ferramentas de Google Calendar para executar a ação.
-            """,
-            expected_output="""
-            - Se um evento for criado: Uma resposta formatada confirmando a criação, baseada na saída da ferramenta. Exemplo:
-              '✅ Evento Criado com Sucesso!
 
-              *Nome:* Nome do Evento
-              *Data:* DD/MM/YYYY
-              *Início:* HH:MM
-              *Término:* HH:MM
-              *ID:* seu_id_do_evento'
-            - Se eventos forem listados: Retorne **EXATAMENTE** a saída completa da ferramenta `List Calendar Events`, seguida de uma frase amigável para perguntar se o usuário precisa de mais alguma coisa ou se deseja deletar um evento listado usando o ID.
+            Regras de Saída (Expected Output):
+            - Se um evento for criado: Uma resposta formatada confirmando a criação e detalhes importantes. Exemplo: '✅ Evento Criado com Sucesso!\n*Nome:* Reunião...\n*Data:* 15/06/2025\n*Início:* 10:00\n*Término:* 11:00'
+            - Se eventos forem listados: Retorne **EXATAMENTE** a saída completa da ferramenta `List Calendar Events` (que já virá formatada) OU a mensagem de "Nenhum compromisso agendado para o período especificado", seguida de uma frase amigável para perguntar se o usuário precisa de mais alguma coisa ou se deseja deletar um evento listado usando o ID.
             - Se um evento for deletado: Uma resposta formatada confirmando a exclusão, baseada na saída da ferramenta. Exemplo: '✅ Evento com ID 'seu_id_do_evento' deletado com sucesso.'
             - Se faltar informação: Uma pergunta clara ao usuário solicitando os dados necessários.
             """,
+            # Ajustamos o expected_output para ser mais explícito
+            expected_output="""Uma resposta formatada para a ação de calendário:
+            - Confirmação de criação de evento com detalhes (Nome, Data, Início, Término, ID).
+            - Lista de eventos encontrados OU mensagem de nenhum evento, seguida de uma pergunta sobre próxima ação.
+            - Confirmação de exclusão de evento por ID.
+            - Uma pergunta clara e específica ao usuário se faltar informação.""",
             agent=self.agents.calendar_manager_agent(),
             tools=[CreateCalendarEventTool(), ListCalendarEventsTool(), DeleteCalendarEventTool()]
         )
