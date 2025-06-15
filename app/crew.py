@@ -5,8 +5,9 @@ from app.agents import MegaSecretaryAgents
 from app.tasks import MegaSecretaryTasks
 
 class MegaSecretaryCrew:
-    def __init__(self, user_message: str):
+    def __init__(self, user_message: str, chat_history: str = ""): # NOVO: Adicionar chat_history
         self.user_message = user_message
+        self.chat_history = chat_history # Armazenar o histórico
         self.agents = MegaSecretaryAgents()
         self.tasks = MegaSecretaryTasks()
 
@@ -19,7 +20,7 @@ class MegaSecretaryCrew:
     def run_calendar_flow(self):
         crew = Crew(
             agents=[self.agents.calendar_manager_agent()],
-            tasks=[self.tasks.manage_calendar_task(self.user_message)],
+            tasks=[self.tasks.manage_calendar_task(self.user_message, self.chat_history)], # NOVO: Passar o histórico
             process=Process.sequential,
             verbose=True
         )
@@ -30,7 +31,7 @@ class MegaSecretaryCrew:
         # ATUALIZADO: Usar o novo agente e tarefa para chat geral
         crew = Crew(
             agents=[self.agents.general_chatter_agent()],
-            tasks=[self.tasks.general_chat_task(self.user_message)],
+            tasks=[self.tasks.general_chat_task(self.user_message, self.chat_history)], # NOVO: Passar o histórico
             process=Process.sequential,
             verbose=True
         )
@@ -40,7 +41,7 @@ class MegaSecretaryCrew:
     def run_routing_flow(self):
         crew = Crew(
             agents=[self.agents.request_router_agent()],
-            tasks=[self.tasks.route_request_task(self.user_message)],
+            tasks=[self.tasks.route_request_task(self.user_message, self.chat_history)], # NOVO: Passar o histórico
             process=Process.sequential,
             verbose=True
         )

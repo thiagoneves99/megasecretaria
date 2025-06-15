@@ -2,7 +2,7 @@
 
 import os
 import pickle
-from datetime import datetime, timezone, timedelta # ATUALIZADO: Importar timedelta também
+from datetime import datetime, timezone, timedelta
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -122,7 +122,7 @@ class CreateCalendarEventTool(BaseTool):
             
             # Se end_datetime não for fornecido, calcula 1 hora depois de start_datetime
             if not end_datetime:
-                end_dt_obj = start_dt_obj + timedelta(hours=1) # CORRIGIDO: Agora usa timedelta corretamente
+                end_dt_obj = start_dt_obj + timedelta(hours=1)
                 end_datetime = end_dt_obj.isoformat()
             else:
                 end_dt_obj = datetime.fromisoformat(end_datetime) # Verifica se o end_datetime é válido
@@ -148,11 +148,11 @@ class CreateCalendarEventTool(BaseTool):
             end_formatted = datetime.fromisoformat(event['end']['dateTime']).strftime('%d/%m/%Y às %H:%M')
 
             return (f"✅ Evento Criado com Sucesso!\n\n"
-                    f"*Nome:* {event['summary']}\n"
-                    f"*Data:* {datetime.fromisoformat(event['start']['dateTime']).strftime('%d/%m/%Y')}\n"
-                    f"*Início:* {start_formatted.split(' ')[2]}\n" # Pega apenas a hora
-                    f"*Término:* {end_formatted.split(' ')[2]}\n" # Pega apenas a hora
-                    f"*ID:* {event['id']}")
+                            f"*Nome:* {event['summary']}\n"
+                            f"*Data:* {datetime.fromisoformat(event['start']['dateTime']).strftime('%d/%m/%Y')}\n"
+                            f"*Início:* {start_formatted.split(' ')[2]}\n" # Pega apenas a hora
+                            f"*Término:* {end_formatted.split(' ')[2]}\n" # Pega apenas a hora
+                            f"*ID:* {event['id']}")
 
         except GoogleCalendarAuthError as e:
             return f"Erro de autenticação do Google Calendar: {e}"
@@ -204,7 +204,8 @@ class ListCalendarEventsTool(BaseTool):
                 start_obj = datetime.fromisoformat(start)
                 # Formata para o fuso horário de São Paulo para exibição, se for um datetime
                 if 'dateTime' in event['start']:
-                    sao_paulo_tz = datetime.now().astimezone().tzinfo # Obtém o fuso horário local ou um específico se quiser fixar
+                    # Define o fuso horário de São Paulo
+                    sao_paulo_tz = timezone(timedelta(hours=-3)) # UTC-3 para São Paulo
                     start_obj_local = start_obj.astimezone(sao_paulo_tz)
                     start_formatted = start_obj_local.strftime('%d/%m/%Y às %H:%M')
                 else: # É um evento de dia inteiro, sem hora
@@ -212,9 +213,9 @@ class ListCalendarEventsTool(BaseTool):
                 
                 # Adiciona o ID do evento na saída
                 event_id = event.get('id', 'N/A')
-                events_list.append(f"{i+1}. **Título:** {event['summary']}\n   - **Data:** {start_formatted.split(' ')[0]}\n   - **Início:** {'N/A' if 'date' in event['start'] else start_formatted.split(' ')[2]}\n   - **ID:** {event_id}")
+                events_list.append(f"{i+1}. **Título:** {event['summary']}\n    - **Data:** {start_formatted.split(' ')[0]}\n    - **Início:** {'N/A' if 'date' in event['start'] else start_formatted.split(' ')[2]}\n    - **ID:** {event_id}")
             
-            return f"✅ Aqui estão seus eventos para hoje, {datetime.now().strftime('%d de %B de %Y')}:\n\n" + "\n\n".join(events_list) + "\n\nSe precisar de mais informações ou de ajuda com outro evento, é só avisar!"
+            return f"✅ Aqui estão seus eventos:\n\n" + "\n\n".join(events_list) + "\n\nSe precisar de mais informações ou de ajuda com outro evento, é só avisar!"
         except GoogleCalendarAuthError as e:
             return f"Erro de autenticação do Google Calendar: {e}"
         except HttpError as error:
@@ -252,15 +253,17 @@ class UpdateCalendarEventTool(BaseTool):
                 event['start']['dateTime'] = start_datetime
                 # Se start_datetime é atualizado e end_datetime não, recalcula end_datetime se for um evento com horário
                 if 'dateTime' in event['end'] and end_datetime is None:
-                    # Tenta inferir a duração se possível ou assume padrão de 1h
-                    start_dt_obj = datetime.fromisoformat(start_datetime)
-                    old_end_dt_obj = datetime.fromisoformat(event['end']['dateTime'])
-                    old_start_dt_obj = datetime.fromisoformat(event['start']['dateTime'])
-                    duration = old_end_dt_obj - old_start_dt_obj
-                    # Se a duração for 0, ou negativa (o que não deveria acontecer), ou muito grande, assume 1h
-                    if duration <= timedelta(minutes=0) or duration > timedelta(hours=24):
-                        duration = timedelta(hours=1)
-                    event['end']['dateTime'] = (start_dt_obj + duration).isoformat()
+                    try:
+                        start_dt_obj = datetime.fromisoformat(start_datetime)
+                        old_end_dt_obj = datetime.fromisoformat(event['end']['dateTime'])
+                        old_start_dt_obj = datetime.fromisoformat(event['start']['dateTime'])
+                        duration = old_end_dt_obj - old_start_dt_obj
+                        # Se a duração for 0, ou negativa (o que não deveria acontecer), ou muito grande, assume 1h
+                        if duration <= timedelta(minutes=0) or duration > timedelta(hours=24):
+                            duration = timedelta(hours=1)
+                        event['end']['dateTime'] = (start_dt_obj + duration).isoformat()
+                    except ValueError: # Caso fromisoformat falhe (data inválida)
+                        event['end']['dateTime'] = (datetime.fromisoformat(start_datetime) + timedelta(hours=1)).isoformat()
                 elif 'date' in event['end'] and end_datetime is None: # Se era um evento de dia inteiro, mantém como dia inteiro ou força 1h
                      event['end']['date'] = (datetime.fromisoformat(start_datetime)).strftime('%Y-%m-%d')
             
@@ -281,11 +284,11 @@ class UpdateCalendarEventTool(BaseTool):
             end_formatted = datetime.fromisoformat(updated_event['end'].get('dateTime', updated_event['end'].get('date'))).strftime('%d/%m/%Y às %H:%M')
 
             return (f"✅ Evento Atualizado com Sucesso!\n\n"
-                    f"*Nome:* {updated_event['summary']}\n"
-                    f"*Data:* {start_formatted.split(' ')[0]}\n"
-                    f"*Início:* {'N/A' if 'date' in updated_event['start'] else start_formatted.split(' ')[2]}\n"
-                    f"*Término:* {'N/A' if 'date' in updated_event['end'] else end_formatted.split(' ')[2]}\n"
-                    f"*ID:* {updated_event['id']}")
+                            f"*Nome:* {updated_event['summary']}\n"
+                            f"*Data:* {start_formatted.split(' ')[0]}\n"
+                            f"*Início:* {'N/A' if 'date' in updated_event['start'] else start_formatted.split(' ')[2]}\n"
+                            f"*Término:* {'N/A' if 'date' in updated_event['end'] else end_formatted.split(' ')[2]}\n"
+                            f"*ID:* {updated_event['id']}")
 
         except GoogleCalendarAuthError as e:
             return f"Erro de autenticação do Google Calendar: {e}"
@@ -349,9 +352,11 @@ class GetEventIdByDetailsTool(BaseTool):
                 start_dt_obj = datetime.fromisoformat(start_datetime)
                 # Adiciona ou subtrai dias para o intervalo de busca
                 time_min_search = (start_dt_obj - timedelta(days=search_days_around_start)).isoformat(timespec='seconds') + 'Z'
-                # Se não há end_datetime, assume um período razoável para busca (e.g., 24 horas após start_datetime, ou até o final do dia se search_days_around_start for 0)
+                
                 if not end_datetime:
-                    time_max_search = (start_dt_obj + timedelta(days=search_days_around_start + 1) - timedelta(seconds=1)).isoformat(timespec='seconds') + 'Z'
+                    # Se não há end_datetime, assume um período razoável para busca (e.g., até o final do dia + search_days_around_start)
+                    # Adiciona 1 dia para incluir o dia completo se search_days_around_start for 0
+                    time_max_search = (start_dt_obj.replace(hour=23, minute=59, second=59) + timedelta(days=search_days_around_start)).isoformat(timespec='seconds') + 'Z'
                 else:
                     time_max_search = datetime.fromisoformat(end_datetime).isoformat(timespec='seconds') + 'Z'
             else:
@@ -382,10 +387,17 @@ class GetEventIdByDetailsTool(BaseTool):
             if len(matching_events) > 1:
                 # Se houver múltiplos eventos com o mesmo título, listar para desambiguação
                 event_details = []
+                sao_paulo_tz = timezone(timedelta(hours=-3)) # UTC-3 para São Paulo
+
                 for event in matching_events:
                     start = event['start'].get('dateTime', event['start'].get('date'))
                     start_obj = datetime.fromisoformat(start)
-                    event_details.append(f" - Título: {event['summary']}, Data: {start_obj.strftime('%d/%m/%Y %H:%M')}, ID: {event['id']}")
+                    if 'dateTime' in event['start']:
+                        start_obj_local = start_obj.astimezone(sao_paulo_tz)
+                        date_formatted = start_obj_local.strftime('%d/%m/%Y %H:%M')
+                    else:
+                        date_formatted = start_obj.strftime('%d/%m/%Y')
+                    event_details.append(f" - Título: {event['summary']}, Data: {date_formatted}, ID: {event['id']}")
                 return f"Múltiplos eventos encontrados com o título '{summary}'. Por favor, forneça mais detalhes (data/hora específica) para identificar o evento:\n" + "\n".join(event_details)
 
             # Se exatamente um evento for encontrado
