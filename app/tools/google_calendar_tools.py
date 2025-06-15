@@ -136,7 +136,7 @@ class ListCalendarEventsSchema(BaseModel):
 
 class ListCalendarEventsTool(BaseTool):
     name: str = "List Calendar Events"
-    description: "Lista eventos futuros do Google Calendar. Pode ser filtrado por período e termo de busca. Retorna uma lista formatada de eventos ou uma mensagem de que nenhum evento foi encontrado."
+    description: str = "Lista eventos futuros do Google Calendar. Pode ser filtrado por período e termo de busca. Retorna uma lista formatada de eventos ou uma mensagem de que nenhum evento foi encontrado."
     args_schema: Type[BaseModel] = ListCalendarEventsSchema
 
     def _run(self, time_min: Optional[datetime] = None, time_max: Optional[datetime] = None, query: Optional[str] = None, max_results: int = 10) -> str:
