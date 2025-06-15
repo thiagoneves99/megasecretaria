@@ -12,7 +12,7 @@ class MegaSecretaryTasks:
         self.sao_paulo_tz = ZoneInfo("America/Sao_Paulo")
 
     def _get_current_time_context(self):
-        now = datetime.now(self.sao_paul_tz).strftime('%A, %d de %B de %Y, %H:%M:%S')
+        now = datetime.now(self.sao_paulo_tz).strftime('%A, %d de %B de %Y, %H:%M:%S')
         return f"Contexto Atual: A data e hora exatas agora em São Paulo são: {now}. Use esta informação para interpretar referências relativas como 'hoje', 'amanhã' ou 'semana que vem'."
 
     def route_request_task(self, user_message: str, history: str = ""):
