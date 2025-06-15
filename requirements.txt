@@ -12,3 +12,4 @@ pydantic-settings
 httpx
 sqlalchemy
 psycopg2-binary
+pysqlite3-binary

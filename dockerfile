@@ -1,7 +1,7 @@
 # mega_secretaria/Dockerfile
 
-# Use uma imagem base Python leve com uma versão mais recente do Debian para garantir sqlite3 >= 3.35.0
-FROM python:3.10-slim-bullseye
+# Use uma imagem base Python mais recente com uma versão mais nova do Debian para garantir sqlite3 >= 3.35.0
+FROM python:3.11-slim-bookworm
 
 # Define o diretório de trabalho dentro do contêiner
 WORKDIR /app
