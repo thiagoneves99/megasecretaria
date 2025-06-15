@@ -2,31 +2,33 @@
 
 from crewai import Task
 from app.agents import MegaSecretaryAgents
-# NOVO: Importar DeleteCalendarEventTool também nas tasks para referência, se necessário no futuro
-from app.tools.google_calendar_tools import CreateCalendarEventTool, ListCalendarEventsTool, DeleteCalendarEventTool 
+from app.tools.google_calendar_tools import CreateCalendarEventTool, ListCalendarEventsTool, DeleteCalendarEventTool
 
+# Para obter a data e hora atuais com fuso horário
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 class MegaSecretaryTasks:
     def __init__(self):
         self.agents = MegaSecretaryAgents()
+        # Define o fuso horário de São Paulo
         self.sao_paulo_tz = ZoneInfo("America/Sao_Paulo")
 
     def _get_current_time_context(self):
+        """Retorna uma string com a data e hora atuais para injetar nos prompts."""
         now = datetime.now(self.sao_paulo_tz).strftime('%A, %d de %B de %Y, %H:%M:%S')
         return f"Contexto Atual: A data e hora exatas agora em São Paulo são: {now}. Use esta informação para interpretar referências relativas como 'hoje', 'amanhã' ou 'semana que vem'."
 
-    def route_request_task(self, user_message: str, history: str): # Adicionado history
+    def route_request_task(self, user_message: str, history: str = ""): # Adicionado history
         return Task(
             description=f"""
             {self._get_current_time_context()}
-            {history} # INJETA O HISTÓRICO AQUI
+            {history} # Injeta o histórico aqui
 
             Analise a seguinte mensagem do usuário e determine a intenção principal:
             "{user_message}"
 
-            Se a mensagem for sobre criar, listar, consultar, *deletar* ou *gerenciar/alterar* eventos/compromissos/reuniões no calendário,
+            Se a mensagem for sobre criar, listar, consultar ou gerenciar eventos/compromissos/reuniões no calendário,
             a intenção é **'gerenciamento de calendário'**.
             Se a mensagem não se encaixar claramente em gerenciamento de calendário,
             a intenção é **'outra_requisição'**.
@@ -34,15 +36,16 @@ class MegaSecretaryTasks:
             Sua saída DEVE ser EXATAMENTE uma das duas strings fornecidas, sem espaços extras, capitalização diferente ou caracteres adicionais:
             'gerenciamento de calendário' ou 'outra_requisição'.
             """,
-            expected_output="Uma das duas strings: 'gerenciamento de calendário' ou 'outra_requisição'.",
+            expected_output="Uma das strings: 'gerenciamento de calendário' ou 'outra_requisição'.",
             agent=self.agents.request_router_agent()
         )
 
-    def manage_calendar_task(self, user_message: str, history: str): # Adicionado history
+    def manage_calendar_task(self, user_message: str, history: str = ""): # Renomeado user_history para history
         return Task(
             description=f"""
             {self._get_current_time_context()}
-            {history} # INJETA O HISTÓRICO AQUI
+
+            {history} # Injeta o histórico aqui
 
             Com base na mensagem do usuário e no histórico da conversa, gerencie o Google Calendar.
             A mensagem do usuário é: "{user_message}"
@@ -71,20 +74,21 @@ class MegaSecretaryTasks:
               *Nome:* Nome do Evento
               *Data:* DD/MM/YYYY
               *Início:* HH:MM
-              *Término:* HH:MM'
-            - Se eventos forem listados: A lista de eventos fornecida pela ferramenta.
-            - Se um evento for deletado: Uma confirmação clara da exclusão. Exemplo: '✅ Evento deletado com sucesso.'
+              *Término:* HH:MM
+              *ID:* seu_id_do_evento'
+            - Se eventos forem listados: Retorne **EXATAMENTE** a saída completa da ferramenta `List Calendar Events`, seguida de uma frase amigável para perguntar se o usuário precisa de mais alguma coisa ou se deseja deletar um evento listado usando o ID.
+            - Se um evento for deletado: Uma resposta formatada confirmando a exclusão, baseada na saída da ferramenta. Exemplo: '✅ Evento com ID 'seu_id_do_evento' deletado com sucesso.'
             - Se faltar informação: Uma pergunta clara ao usuário solicitando os dados necessários.
             """,
             agent=self.agents.calendar_manager_agent(),
-            tools=[CreateCalendarEventTool(), ListCalendarEventsTool(), DeleteCalendarEventTool()] # NOVO: Incluir DeleteCalendarEventTool aqui
+            tools=[CreateCalendarEventTool(), ListCalendarEventsTool(), DeleteCalendarEventTool()]
         )
 
-    def general_chat_task(self, user_message: str, history: str): # Adicionado history
+    def general_chat_task(self, user_message: str, history: str = ""): # Adicionado history
         return Task(
             description=f"""
             {self._get_current_time_context()}
-            {history} # INJETA O HISTÓRICO AQUI
+            {history} # Injeta o histórico aqui
 
             A requisição do usuário não é sobre gerenciamento de calendário.
             Responda à pergunta do usuário de forma útil e amigável.

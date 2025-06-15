@@ -16,31 +16,30 @@ class MegaSecretaryCrew:
         # Mantido para referência se a arquitetura da Crew mudar para uma mais unificada.
         pass
 
-    def run_calendar_flow(self, history: str = ""): # Adicionar history como parâmetro opcional
+    def run_calendar_flow(self, history: str = ""): # Adicionado history
         crew = Crew(
             agents=[self.agents.calendar_manager_agent()],
-            tasks=[self.tasks.manage_calendar_task(self.user_message, history=history)], # Passar history
+            tasks=[self.tasks.manage_calendar_task(self.user_message, history=history)], # Passa history para a task
             process=Process.sequential,
             verbose=True
         )
         result = crew.kickoff()
         return result
 
-    def run_other_flow(self, history: str = ""): # Adicionar history como parâmetro opcional
-        # ATUALIZADO: Usar o novo agente e tarefa para chat geral
+    def run_other_flow(self, history: str = ""): # Adicionado history
         crew = Crew(
             agents=[self.agents.general_chatter_agent()],
-            tasks=[self.tasks.general_chat_task(self.user_message, history=history)], # Passar history
+            tasks=[self.tasks.general_chat_task(self.user_message, history=history)], # Passa history para a task
             process=Process.sequential,
             verbose=True
         )
         result = crew.kickoff()
         return result
 
-    def run_routing_flow(self, history: str = ""): # Adicionar history como parâmetro opcional
+    def run_routing_flow(self, history: str = ""): # Adicionado history
         crew = Crew(
             agents=[self.agents.request_router_agent()],
-            tasks=[self.tasks.route_request_task(self.user_message, history=history)], # Passar history
+            tasks=[self.tasks.route_request_task(self.user_message, history=history)], # Passa history para a task
             process=Process.sequential,
             verbose=True
         )

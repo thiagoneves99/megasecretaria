@@ -92,37 +92,36 @@ async def process_message_in_background(sender_phone: str, user_message: str, lo
         return # Ou trate o erro de outra forma
 
     try:
-        # NOVO: Buscar histórico da conversa
-        # Limita o histórico a, por exemplo, as últimas 5 mensagens (excluindo a atual que está sendo processada)
-        # Isso evita que o histórico fique muito longo e consuma muitos tokens.
-        conversation_history = db.query(MessageLog)\
-                                 .filter(MessageLog.phone_number == sender_phone)\
-                                 .filter(MessageLog.id != log_id) \
-                                 .order_by(desc(MessageLog.timestamp))\
-                                 .limit(5).all()
+        # Recupera o histórico da conversa (todas as mensagens para o número, exceto a atual)
+        history_entries = db.query(MessageLog).filter(MessageLog.phone_number == sender_phone).filter(MessageLog.id != log_id).order_by(MessageLog.timestamp).all()
         
-        # Inverter a ordem para que as mensagens mais antigas venham primeiro
-        conversation_history.reverse()
+        # Constrói o histórico formatado
+        full_history_lines = []
+        for entry in history_entries:
+            # Inclui apenas entradas que têm conteúdo de resposta (indicando uma rodada completa de conversa)
+            if entry.response_content:
+                full_history_lines.append(f"User: {entry.message_content}")
+                full_history_lines.append(f"Assistant: {entry.response_content}")
+        
+        # Junta o histórico
+        full_history_str = "\n".join(full_history_lines)
 
-        # Formatar o histórico para ser injetado nos prompts
-        formatted_history = []
-        for msg in conversation_history:
-            if msg.message_content:
-                # Certifica-se de que a mensagem do usuário está claramente identificada
-                formatted_history.append(f"User: {msg.message_content}")
-            if msg.response_content:
-                # Certifica-se de que a resposta do assistente está claramente identificada
-                formatted_history.append(f"Assistant: {msg.response_content}")
-        
-        history_string = "\n".join(formatted_history)
-        if history_string:
+        # Trunca o histórico a partir do final para manter as conversas mais recentes
+        if len(full_history_str) > settings.HISTORY_MAX_CHARS:
+            user_history = full_history_str[-settings.HISTORY_MAX_CHARS:]
+            print(f"DEBUG_MAIN: Histórico truncado para {len(user_history)} caracteres.")
+        else:
+            user_history = full_history_str
+            print(f"DEBUG_MAIN: Histórico completo usado ({len(user_history)} caracteres).")
+
+        history_string = ""
+        if user_history:
             # Adiciona um cabeçalho e rodapé para o bloco de histórico no prompt
-            history_string = f"\n----- Histórico da Conversa -----\n{history_string}\n---------------------------------\n"
+            history_string = f"\n----- Histórico da Conversa -----\n{user_history}\n---------------------------------\n"
         else:
             history_string = "" # Se não houver histórico, string vazia
 
         print(f"Histórico para {sender_phone}:\n{history_string}")
-
 
         # 1. Fluxo de roteamento
         crew_instance = MegaSecretaryCrew(user_message=user_message)

@@ -13,11 +13,13 @@ class Settings(BaseSettings ):
     OPENAI_API_KEY: str
     DATABASE_URL: str
     GOOGLE_TOKEN_PATH: str = "/var/lib/megasecretaria/token.pickle"
-    EVOLUTION_API_INSTANCE_NAME: str # <--- Adicione esta linha
+    EVOLUTION_API_INSTANCE_NAME: str
 
     # Configurações do modelo LLM
     LLM_MODEL: str = "gpt-4o-mini"
     TEMPERATURE: float = 0.7
+    # Removido: MAX_TOKENS
+    HISTORY_MAX_CHARS: int = 1200 # NOVO: Limite de caracteres para o histórico da conversa (aprox. 300 tokens)
 
 settings = Settings()
 
