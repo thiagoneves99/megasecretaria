@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 import uvicorn
 import os
+import traceback # Importar traceback para depuração de erros
 
 from app.config import settings
 from app.services.whatsapp_service import send_whatsapp_message
@@ -40,67 +41,43 @@ async def whatsapp_webhook(
     print(f"Webhook recebido: {webhook_data.model_dump_json()}")
 
     # Extrair informações da mensagem
-    # A estrutura exata pode variar. Verifique a documentação da Evolution API.
-    try:
-        message_type = webhook_data.data.get("key", {}).get("remoteJid")
-        if not message_type or not message_type.endswith("@s.whatsapp.net"):
-            print("Mensagem não é de um chat individual ou formato inesperado.")
-            return {"status": "ignoring", "message": "Not a direct message or unexpected format"}
+    message_content = webhook_data.data.get('message', {}).get('conversation', '') or \
+                      webhook_data.data.get('message', {}).get('extendedTextMessage', {}).get('text', '')
 
-        # O remoteJid é o número do remetente (ex: 5521971189190@s.whatsapp.net)
-        sender_phone_full = webhook_data.data.get("key", {}).get("remoteJid")
-        sender_phone = sender_phone_full.split('@')[0] if sender_phone_full else None
-        
-        message_text = webhook_data.data.get("message", {}).get("conversation")
-        if not message_text:
-            message_text = webhook_data.data.get("message", {}).get("extendedTextMessage", {}).get("text")
+    sender_phone = webhook_data.data.get('key', {}).get('remoteJid', '').replace('@s.whatsapp.net', '')
+    
+    # NOVOS PRINTS DE DEBUG PARA VALIDAR O NÚMERO
+    print(f"Sender Phone Extraído: {sender_phone}")
+    print(f"Allowed Phone Number na Config: {settings.ALLOWED_PHONE_NUMBER}")
 
-        if not sender_phone or not message_text:
-            print("Número do remetente ou texto da mensagem não encontrado.")
-            return {"status": "error", "message": "Sender phone or message text not found"}
 
-    except Exception as e:
-        print(f"Erro ao parsear webhook data: {e}")
-        raise HTTPException(status_code=400, detail=f"Erro ao parsear webhook data: {e}")
-
-    # Log da mensagem recebida
+    # Criar um log de mensagem inicial
     log_entry = MessageLog(
         phone_number=sender_phone,
-        message_content=message_text,
+        message_content=message_content,
         status="received"
     )
     db.add(log_entry)
     db.commit()
     db.refresh(log_entry)
 
-    # Verificar se o número está autorizado
-    if sender_phone != settings.ALLOWED_PHONE_NUMBER:
-        response_message = "Desculpe, este serviço está disponível apenas para números autorizados."
-        background_tasks.add_task(send_whatsapp_message, sender_phone, response_message)
-        log_entry.response_content = response_message
-        log_entry.status = "unauthorized"
-        db.commit()
-        print(f"Requisição do número não autorizado: {sender_phone}")
-        return {"status": "unauthorized", "message": "Phone number not allowed"}
-
-    # Processar a mensagem com CrewAI em segundo plano
-    background_tasks.add_task(process_message_with_crewai, sender_phone, message_text, log_entry.id)
-
-    return {"status": "processing", "message": "Message received and being processed"}
-
-async def process_message_with_crewai(phone_number: str, message_text: str, log_id: int):
-    db = next(get_db()) # Obtém uma nova sessão de DB para a tarefa em background
-    log_entry = db.query(MessageLog).filter(MessageLog.id == log_id).first()
-
     try:
-        crew_instance = MegaSecretaryCrew(user_message=message_text)
+        if not message_content:
+            print("Mensagem sem conteúdo de texto, ignorando.")
+            raise HTTPException(status_code=200, detail="Mensagem sem conteúdo de texto.")
 
-        # Primeiro, rotear a requisição
-        print(f"Roteando requisição para: {message_text}")
-        routing_result = crew_instance.run_routing_flow()
+        # Filtrar mensagens apenas do número permitido
+        if sender_phone != settings.ALLOWED_PHONE_NUMBER:
+            print(f"!!! ATENÇÃO: Mensagem ignorada de {sender_phone}. Apenas {settings.ALLOWED_PHONE_NUMBER} é permitido. !!!")
+            raise HTTPException(status_code=200, detail="Número não autorizado.")
+
+        print(f"Roteando requisição para: {message_content}")
+
+        crew_instance = MegaSecretaryCrew(user_message=message_content)
         
-        # A saída da tarefa de roteamento é uma string simples
-        intent = routing_result.strip().lower()
+        # Correção aqui: Acessar .raw_output do objeto CrewOutput
+        routing_result = crew_instance.run_routing_flow()
+        intent = routing_result.raw_output.strip().lower() # <--- CORREÇÃO APLICADA AQUI
         print(f"Intenção detectada: {intent}")
 
         final_response = ""
@@ -114,15 +91,30 @@ async def process_message_with_crewai(phone_number: str, message_text: str, log_
             final_response = crew_result
         
         print(f"Resposta final da CrewAI: {final_response}")
+        # NOVO PRINT DE DEBUG ANTES DE CHAMAR O SERVIÇO DE WHATSAPP
+        print(f"DEBUG_MAIN: Prestes a chamar send_whatsapp_message para {phone_number} com a resposta.")
         await send_whatsapp_message(phone_number, final_response)
         
         log_entry.response_content = final_response
         log_entry.status = "processed"
         db.commit()
 
+    except HTTPException as http_exc:
+        # Se for uma HTTPException, ela já tem o status e detalhes, apenas a re-lançamos
+        print(f"HTTPException ocorrida: {http_exc.detail}")
+        # Não enviamos mensagem de erro para o usuário final para HTTPExceptions como "número não autorizado"
+        log_entry.response_content = http_exc.detail
+        log_entry.status = "ignored" # Ou outro status apropriado
+        db.commit()
+        raise http_exc # Re-lançar para que o FastAPI lide com ela
+
     except Exception as e:
         error_message = f"Ocorreu um erro ao processar sua requisição: {e}"
         print(f"Erro no processamento da CrewAI para {phone_number}: {e}")
+        traceback.print_exc() # Imprime o rastreamento completo do erro para depuração
+        
+        # NOVO PRINT DE DEBUG ANTES DE CHAMAR O SERVIÇO DE WHATSAPP NO ERRO
+        print(f"DEBUG_MAIN: Chamando send_whatsapp_message com mensagem de erro para {phone_number}.")
         await send_whatsapp_message(phone_number, error_message)
         
         log_entry.response_content = error_message
@@ -132,6 +124,4 @@ async def process_message_with_crewai(phone_number: str, message_text: str, log_
         db.close() # Garante que a sessão do DB seja fechada
 
 if __name__ == "__main__":
-    # Este bloco é para execução local, mas no EasyPanel o Uvicorn será iniciado diretamente.
-    uvicorn.run(app, host="0.0.0.0", port=8000)
-
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
