@@ -7,7 +7,8 @@ async def send_whatsapp_message(phone_number: str, message: str ):
     """
     Envia uma mensagem de texto via Evolution API.
     """
-    url = f"{settings.EVOLUTION_API_URL}/message/sendText/{settings.EVOLUTION_API_KEY}"
+    # A URL agora inclui o nome da instância
+    url = f"{settings.EVOLUTION_API_URL}/instance/{settings.EVOLUTION_API_INSTANCE_NAME}/message/sendText/{settings.EVOLUTION_API_KEY}" # <--- Linha corrigida
     headers = {
         "Content-Type": "application/json"
     }
@@ -36,4 +37,3 @@ async def send_whatsapp_message(phone_number: str, message: str ):
     except Exception as e:
         print(f"Erro inesperado ao enviar mensagem para {phone_number}: {e}")
         return {"status": "error", "message": f"Erro inesperado: {e}"}
-

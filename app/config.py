@@ -12,7 +12,8 @@ class Settings(BaseSettings ):
     ALLOWED_PHONE_NUMBER: str
     OPENAI_API_KEY: str
     DATABASE_URL: str
-    GOOGLE_TOKEN_PATH: str = "/var/lib/megasecretaria/token.pickle" # Valor padrão, pode ser sobrescrito
+    GOOGLE_TOKEN_PATH: str = "/var/lib/megasecretaria/token.pickle"
+    EVOLUTION_API_INSTANCE_NAME: str # <--- Adicione esta linha
 
     # Configurações do modelo LLM
     LLM_MODEL: str = "gpt-4o-mini"
@@ -25,4 +26,3 @@ settings = Settings()
 # ou lido. No EasyPanel, você pode precisar garantir que o volume esteja montado corretamente.
 if not os.path.exists(os.path.dirname(settings.GOOGLE_TOKEN_PATH)):
     os.makedirs(os.path.dirname(settings.GOOGLE_TOKEN_PATH), exist_ok=True)
-
