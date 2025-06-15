@@ -46,7 +46,7 @@ async def whatsapp_webhook(
 
     sender_phone = webhook_data.data.get('key', {}).get('remoteJid', '').replace('@s.whatsapp.net', '')
     
-    # NOVOS PRINTS DE DEBUG PARA VALIDAR O NÚMERO
+    # PRINTS DE DEBUG PARA VALIDAR O NÚMERO
     print(f"Sender Phone Extraído: {sender_phone}")
     print(f"Allowed Phone Number na Config: {settings.ALLOWED_PHONE_NUMBER}")
 
@@ -64,20 +64,28 @@ async def whatsapp_webhook(
     try:
         if not message_content:
             print("Mensagem sem conteúdo de texto, ignorando.")
+            # Atualiza o log para ignorado e não envia resposta ao usuário
+            log_entry.response_content = "Mensagem sem conteúdo de texto."
+            log_entry.status = "ignored"
+            db.commit()
             raise HTTPException(status_code=200, detail="Mensagem sem conteúdo de texto.")
 
         # Filtrar mensagens apenas do número permitido
         if sender_phone != settings.ALLOWED_PHONE_NUMBER:
             print(f"!!! ATENÇÃO: Mensagem ignorada de {sender_phone}. Apenas {settings.ALLOWED_PHONE_NUMBER} é permitido. !!!")
+            # Atualiza o log para ignorado e não envia resposta ao usuário
+            log_entry.response_content = "Número não autorizado."
+            log_entry.status = "ignored"
+            db.commit()
             raise HTTPException(status_code=200, detail="Número não autorizado.")
 
         print(f"Roteando requisição para: {message_content}")
 
         crew_instance = MegaSecretaryCrew(user_message=message_content)
         
-        # Correção aqui: Acessar .raw_output do objeto CrewOutput
+        # CORREÇÃO AQUI: Remover .raw_output
         routing_result = crew_instance.run_routing_flow()
-        intent = routing_result.raw_output.strip().lower() # <--- CORREÇÃO APLICADA AQUI
+        intent = str(routing_result).strip().lower() # <--- CORREÇÃO APLICADA AQUI (casting para string garante)
         print(f"Intenção detectada: {intent}")
 
         final_response = ""
@@ -92,9 +100,9 @@ async def whatsapp_webhook(
         
         print(f"Resposta final da CrewAI: {final_response}")
         # NOVO PRINT DE DEBUG ANTES DE CHAMAR O SERVIÇO DE WHATSAPP
-        print(f"DEBUG_MAIN: Prestes a chamar send_whatsapp_message para {phone_number} com a resposta.")
-        await send_whatsapp_message(phone_number, final_response)
-        
+        print(f"DEBUG_MAIN: Prestes a chamar send_whatsapp_message para {sender_phone} com a resposta.")
+        await send_whatsapp_message(sender_phone, final_response) # <--- CORREÇÃO APLICADA AQUI
+
         log_entry.response_content = final_response
         log_entry.status = "processed"
         db.commit()
@@ -103,19 +111,17 @@ async def whatsapp_webhook(
         # Se for uma HTTPException, ela já tem o status e detalhes, apenas a re-lançamos
         print(f"HTTPException ocorrida: {http_exc.detail}")
         # Não enviamos mensagem de erro para o usuário final para HTTPExceptions como "número não autorizado"
-        log_entry.response_content = http_exc.detail
-        log_entry.status = "ignored" # Ou outro status apropriado
-        db.commit()
+        # O log_entry já foi atualizado antes do raise http_exc
         raise http_exc # Re-lançar para que o FastAPI lide com ela
 
     except Exception as e:
         error_message = f"Ocorreu um erro ao processar sua requisição: {e}"
-        print(f"Erro no processamento da CrewAI para {phone_number}: {e}")
+        print(f"Erro no processamento da CrewAI para {sender_phone}: {e}") # <--- CORREÇÃO APLICADA AQUI
         traceback.print_exc() # Imprime o rastreamento completo do erro para depuração
         
         # NOVO PRINT DE DEBUG ANTES DE CHAMAR O SERVIÇO DE WHATSAPP NO ERRO
-        print(f"DEBUG_MAIN: Chamando send_whatsapp_message com mensagem de erro para {phone_number}.")
-        await send_whatsapp_message(phone_number, error_message)
+        print(f"DEBUG_MAIN: Chamando send_whatsapp_message com mensagem de erro para {sender_phone}.") # <--- CORREÇÃO APLICADA AQUI
+        await send_whatsapp_message(sender_phone, error_message) # <--- CORREÇÃO APLICADA AQUI
         
         log_entry.response_content = error_message
         log_entry.status = "error"
