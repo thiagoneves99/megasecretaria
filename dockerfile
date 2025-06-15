@@ -1,12 +1,18 @@
 # mega_secretaria/Dockerfile
 
-# Use uma imagem base Python mais recente com uma versão mais nova do Debian para garantir sqlite3 >= 3.35.0
+# Use uma imagem base Python mais recente com uma versão mais nova do Debian
 FROM python:3.11-slim-bookworm
 
 # Define o diretório de trabalho dentro do contêiner
 WORKDIR /app
 
-# Copia o arquivo de requisitos e instala as dependências
+# Instala as dependências de sistema necessárias para psycopg2
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq-dev \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copia o arquivo de requisitos e instala as dependências Python
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
