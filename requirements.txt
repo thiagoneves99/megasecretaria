@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+python-dotenv
+crewai
+crewai-tools
+langchain
+langchain-openai
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib
+pydantic-settings
+httpx
+sqlalchemy
+psycopg2-binary
