@@ -8,9 +8,10 @@ async def send_whatsapp_message(phone_number: str, message: str ):
     Envia uma mensagem de texto via Evolution API.
     """
     # URL ajustada conforme sua sugestão. A API Key foi removida da URL.
-    url = f"{settings.EVOLUTION_API_URL}/message/sendText/{settings.EVOLUTION_API_INSTANCE_NAME}" # <--- Linha corrigida
+    url = f"{settings.EVOLUTION_API_URL}/message/sendText/{settings.EVOLUTION_API_INSTANCE_NAME}"
     headers = {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "X-API-Key": settings.EVOLUTION_API_KEY # <--- Adicionar esta linha
     }
     payload = {
         "number": phone_number,
@@ -29,11 +30,13 @@ async def send_whatsapp_message(phone_number: str, message: str ):
             print(f"Mensagem enviada com sucesso para {phone_number}: {response.json()}")
             return response.json()
     except httpx.RequestError as exc:
-        print(f"Erro ao enviar mensagem para {phone_number}: {exc}" )
+        print(f"Erro ao enviar mensagem para {phone_number}: {exc}")
         return {"status": "error", "message": f"Erro de requisição: {exc}"}
     except httpx.HTTPStatusError as exc:
-        print(f"Erro HTTP ao enviar mensagem para {phone_number}: {exc.response.status_code} - {exc.response.text}" )
+        print(f"Erro HTTP ao enviar mensagem para {phone_number}: {exc.response.status_code} - {exc.response.text}")
         return {"status": "error", "message": f"Erro HTTP: {exc.response.status_code} - {exc.response.text}"}
     except Exception as e:
         print(f"Erro inesperado ao enviar mensagem para {phone_number}: {e}")
         return {"status": "error", "message": f"Erro inesperado: {e}"}
+
+
