@@ -2,7 +2,8 @@
 
 from crewai import Task
 from app.agents import MegaSecretaryAgents
-from app.tools.google_calendar_tools import CreateCalendarEventTool, ListCalendarEventsTool, GetEventIdByDetailsTool, UpdateCalendarEventTool, DeleteCalendarEventTool # Garanta que todas as ferramentas estão importadas
+from app.tools.google_calendar_tools import CreateCalendarEventTool, ListCalendarEventsTool
+
 # NOVO: Para obter a data e hora atuais com fuso horário
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -18,14 +19,12 @@ class MegaSecretaryTasks:
         now = datetime.now(self.sao_paulo_tz).strftime('%A, %d de %B de %Y, %H:%M:%S')
         return f"Contexto Atual: A data e hora exatas agora em São Paulo são: {now}. Use esta informação para interpretar referências relativas como 'hoje', 'amanhã' ou 'semana que vem'."
 
-    # NOVO: Adicionar chat_history como argumento para todas as tarefas
-    def route_request_task(self, user_message: str, chat_history: str = ""):
-        # NOVO: Adicionar o histórico ao prompt
-        history_context = f"\n### Histórico da Conversa (para contexto):\n{chat_history}\n" if chat_history else ""
+    # Modificar para aceitar o histórico
+    def route_request_task(self, user_message: str, history: str = ""):
         return Task(
             description=f"""
             {self._get_current_time_context()}
-            {history_context} # Injeta o histórico aqui
+            {history} # <--- INJETA O HISTÓRICO AQUI
 
             Analise a seguinte mensagem do usuário e determine a intenção principal:
             "{user_message}"
@@ -38,32 +37,32 @@ class MegaSecretaryTasks:
             Sua saída DEVE ser EXATAMENTE uma das duas strings fornecidas, sem espaços extras, capitalização diferente ou caracteres adicionais:
             'gerenciamento de calendário' ou 'outra_requisição'.
             """,
-            expected_output="""
-            Uma das strings: 'gerenciamento de calendário' ou 'outra_requisição'.
-            """,
+            expected_output="Uma string indicando a intenção: 'gerenciamento de calendário' ou 'outra_requisição'.",
             agent=self.agents.request_router_agent()
         )
 
-    # NOVO: Adicionar chat_history como argumento
-    def manage_calendar_task(self, user_message: str, chat_history: str = ""):
-        # NOVO: Adicionar o histórico ao prompt
-        history_context = f"\n### Histórico da Conversa (para contexto):\n{chat_history}\n" if chat_history else ""
+    # Modificar para aceitar o histórico
+    def manage_calendar_task(self, user_message: str, history: str = ""):
         return Task(
             description=f"""
             {self._get_current_time_context()}
-            {history_context} # Injeta o histórico aqui
+            {history} # <--- INJETA O HISTÓRICO AQUI
 
-            Sua tarefa é gerenciar eventos no Google Calendar com base na mensagem do usuário.
-            Mensagem do usuário: "{user_message}"
+            Com base na mensagem do usuário e no histórico da conversa, gerencie o Google Calendar.
+            A mensagem do usuário é: \"{user_message}\"
 
-            REGRAS IMPORTANTES:
-            1.  **Extração de Título:** Extraia o título do evento EXATAMENTE como o usuário informou. Se ele disser "...reunião com o nome patricia linda", o título é "patricia linda". NÃO use títulos genéricos como "Reunião".
-            2.  **Duração Padrão:** Se o usuário especificar uma hora de início mas NÃO uma duração ou hora de término, você DEVE assumir uma duração padrão de 1 (UMA) hora.
-            3.  **Listar Eventos em Dia Específico:** Se o usuário pedir a agenda de um dia específico (ex: "agenda de amanhã" ou "eventos do dia 16/06"), você DEVE usar a ferramenta `Listar Eventos do Google Calendar` fornecendo tanto `time_min` (o início do dia, 00:00:00) quanto `time_max` (o fim do dia, 23:59:59) para filtrar APENAS aquele dia. *Sempre inclua 'Z' para UTC no time_min e time_max ao listar.*
-            4.  **Criação de Evento:** Para criar um evento, extraia todas as informações (título, data, hora de início, duração, etc.). Calcule a hora de término com base na duração (padrão de 1h se não especificada).
-            5.  **Deletar Evento:** Se o usuário pedir para deletar um evento, *primeiro* use a ferramenta `GetEventIdByDetailsTool` para tentar obter o ID. Se o ID for explicitamente fornecido, use-o diretamente. Se múltiplos eventos corresponderem ou nenhum for encontrado, você DEVE listar os eventos encontrados (se houver) e **pedir ao usuário para ser mais específico**, fornecendo o título exato e/ou a data/hora, ou o ID do evento. *Depois* de obter um ID único e confirmado, use a ferramenta `DeleteCalendarEventTool`.
-            6.  **Atualizar Evento:** Se o usuário pedir para alterar/atualizar um evento, *primeiro* use a ferramenta `GetEventIdByDetailsTool` se o ID não for explicitamente fornecido. Use o título e a data/hora para encontrar o ID. *Depois* de obter o ID, use a ferramenta `UpdateCalendarEventTool` com os novos detalhes fornecidos. Se vários eventos corresponderem, peça ao usuário para ser mais específico.
-            7.  **Peça Informações:** Se faltarem informações CRÍTICAS para criar, deletar ou atualizar um evento (como o título, data/hora de início, ou o que exatamente precisa ser alterado), peça-as claramente ao usuário.
+            Você deve ser capaz de:
+            - **Criar eventos**: se o usuário pedir para criar um compromisso, reunião, lembrete, etc. Para criar um evento, você precisará de:
+                - Título (summary)
+                - Data e hora de início (start_datetime)
+                - Data e hora de término (end_datetime) (opcional, mas tente inferir se possível)
+                - Descrição (description) (opcional)
+                - Local (location) (opcional)
+            - **Listar eventos**: se o usuário pedir para ver os eventos futuros. Pode precisar de:
+                - Data ou período (time_min, time_max) (opcional, se não informado, liste os próximos 10 eventos)
+
+            Se alguma informação essencial para criar um evento estiver faltando, **peça ao usuário de forma clara e específica** os dados que faltam.
+            Ao interagir com o usuário, seja sempre educado e claro em suas perguntas ou respostas.
 
             Utilize as ferramentas de Google Calendar para executar a ação.
             """,
@@ -76,26 +75,24 @@ class MegaSecretaryTasks:
               *Início:* HH:MM
               *Término:* HH:MM'
             - Se eventos forem listados: A lista de eventos fornecida pela ferramenta.
-            - Se um evento for deletado/atualizado: Uma confirmação clara da ação com detalhes (ex: "✅ Evento 'Nome do Evento' deletado com sucesso!").
-            - Se faltar informação ou houver ambiguidade: Uma pergunta clara ao usuário solicitando os dados necessários ou pedindo para ser mais específico.
+            - Se faltar informação: Uma pergunta clara ao usuário solicitando os dados necessários.
             """,
             agent=self.agents.calendar_manager_agent(),
-            tools=[CreateCalendarEventTool(), ListCalendarEventsTool(), GetEventIdByDetailsTool(), UpdateCalendarEventTool(), DeleteCalendarEventTool()]
+            tools=[CreateCalendarEventTool(), ListCalendarEventsTool()]
         )
 
-    # NOVO: Adicionar chat_history como argumento
-    def general_chat_task(self, user_message: str, chat_history: str = ""):
-        # NOVO: Adicionar o histórico ao prompt
-        history_context = f"\n### Histórico da Conversa (para contexto):\n{chat_history}\n" if chat_history else ""
+    # Modificar para aceitar o histórico
+    def general_chat_task(self, user_message: str, history: str = ""):
         return Task(
             description=f"""
             {self._get_current_time_context()}
-            {history_context} # Injeta o histórico aqui
+            {history} # <--- INJETA O HISTÓRICO AQUI
 
             A requisição do usuário não é sobre gerenciamento de calendário.
-            Responda à pergunta do usuário de forma útil e amigável.
+            Responda à pergunta do usuário de forma útil e amigável, **utilizando o histórico da conversa para manter o contexto e a coerência**.
             Tente responder a perguntas gerais ou continuar uma conversa.
             Se não souber a resposta, peça desculpas e ofereça ajuda com outra coisa.
+            Lembre-se de informações fornecidas anteriormente pelo usuário, como o nome dele.
 
             Mensagem do usuário: "{user_message}"
             """,

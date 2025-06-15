@@ -5,9 +5,8 @@ from app.agents import MegaSecretaryAgents
 from app.tasks import MegaSecretaryTasks
 
 class MegaSecretaryCrew:
-    def __init__(self, user_message: str, chat_history: str = ""): # NOVO: Adicionar chat_history
+    def __init__(self, user_message: str):
         self.user_message = user_message
-        self.chat_history = chat_history # Armazenar o histórico
         self.agents = MegaSecretaryAgents()
         self.tasks = MegaSecretaryTasks()
 
@@ -17,31 +16,31 @@ class MegaSecretaryCrew:
         # Mantido para referência se a arquitetura da Crew mudar para uma mais unificada.
         pass
 
-    def run_calendar_flow(self):
+    def run_calendar_flow(self, history: str = ""): # Adicionar history como parâmetro opcional
         crew = Crew(
             agents=[self.agents.calendar_manager_agent()],
-            tasks=[self.tasks.manage_calendar_task(self.user_message, self.chat_history)], # NOVO: Passar o histórico
+            tasks=[self.tasks.manage_calendar_task(self.user_message, history=history)], # Passar history
             process=Process.sequential,
             verbose=True
         )
         result = crew.kickoff()
         return result
 
-    def run_other_flow(self):
+    def run_other_flow(self, history: str = ""): # Adicionar history como parâmetro opcional
         # ATUALIZADO: Usar o novo agente e tarefa para chat geral
         crew = Crew(
             agents=[self.agents.general_chatter_agent()],
-            tasks=[self.tasks.general_chat_task(self.user_message, self.chat_history)], # NOVO: Passar o histórico
+            tasks=[self.tasks.general_chat_task(self.user_message, history=history)], # Passar history
             process=Process.sequential,
             verbose=True
         )
         result = crew.kickoff()
         return result
 
-    def run_routing_flow(self):
+    def run_routing_flow(self, history: str = ""): # Adicionar history como parâmetro opcional
         crew = Crew(
             agents=[self.agents.request_router_agent()],
-            tasks=[self.tasks.route_request_task(self.user_message, self.chat_history)], # NOVO: Passar o histórico
+            tasks=[self.tasks.route_request_task(self.user_message, history=history)], # Passar history
             process=Process.sequential,
             verbose=True
         )
