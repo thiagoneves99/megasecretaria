@@ -30,7 +30,17 @@ class MegaSecretaryAgents:
             goal='Analisar a requisição do usuário e determinar qual agente é o mais adequado para lidar com ela.',
             backstory="""Você é a primeira linha de defesa da MegaSecretaria. Sua função é entender a intenção do usuário a partir da mensagem do WhatsApp e encaminhá-la para o agente especializado correto. Você deve ser capaz de identificar se a requisição é sobre calendário, tarefas, lembretes, etc., e delegar a tarefa apropriada.""",
             verbose=True,
-            allow_delegation=True, # Este agente pode delegar para outros
+            allow_delegation=True, # Este agente pode delegar para outros (mas aqui só roteia)
             llm=self.llm
         )
-
+    
+    # NOVO: Agente para respostas gerais
+    def general_chatter_agent(self):
+        return Agent(
+            role='Assistente de Chat Geral',
+            goal='Responder a perguntas gerais e manter uma conversa amigável e informativa.',
+            backstory="""Você é um assistente de IA prestativo e amigável, pronto para responder a uma ampla gama de perguntas e conversar sobre diversos tópicos. Você se esforça para fornecer informações precisas e ser um bom interlocutor, mesmo quando a solicitação não se encaixa nas funcionalidades específicas do sistema.""",
+            verbose=True,
+            allow_delegation=False, # Este agente responde diretamente
+            llm=self.llm
+        )
